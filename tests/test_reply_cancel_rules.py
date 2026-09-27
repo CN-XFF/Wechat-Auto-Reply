@@ -6,7 +6,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_wait_and_cancel_rules_are_configured():
-    config = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     assert config["initial_reply_wait_seconds"] == 10.0
     assert config["cancel_on_mouse_move"] is True
     assert config["cancel_if_user_replied"] is True
@@ -28,12 +28,17 @@ def test_app_checks_mouse_and_manual_reply_before_generating_and_sending():
 
 
 def test_bridge_can_detect_user_reply_after_incoming_message():
-    source = (ROOT / "wechat_reply" / "wechat_bridge.py").read_text(encoding="utf-8")
+    source = (ROOT / "reply_core" / "wechat_bridge.py").read_text(encoding="utf-8")
     assert "def has_self_reply_after" in source
     assert "sort_seq > int(after_sort_seq)" in source
     assert "row.get(\"sender_id\") in {1, 2}" in source
 
 
 def test_desktop_start_stop_files_exist():
+    desktop = Path("D:/Desktop")
+    start_cmd = (desktop / "开启自动回复.cmd").read_text(encoding="utf-8")
+    stop_cmd = (desktop / "关闭自动回复.cmd").read_text(encoding="utf-8")
+    assert "start_auto_reply.ps1" in start_cmd
+    assert "stop_auto_reply.ps1" in stop_cmd
     assert (ROOT / "scripts" / "start_auto_reply.ps1").exists()
     assert (ROOT / "scripts" / "stop_auto_reply.ps1").exists()

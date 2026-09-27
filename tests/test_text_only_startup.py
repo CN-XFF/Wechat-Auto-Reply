@@ -8,7 +8,7 @@ sys.path.insert(0, str(ROOT / "vendor" / "wechatauto-replica"))
 sys.path.insert(0, str(ROOT))
 
 import wechatauto.db as db_module  # noqa: E402
-import wechat_reply.wechat_bridge as bridge_module  # noqa: E402
+import reply_core.wechat_bridge as bridge_module  # noqa: E402
 
 
 def test_text_reply_bridge_skips_media_key_scan(monkeypatch, tmp_path):

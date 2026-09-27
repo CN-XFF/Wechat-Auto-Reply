@@ -8,11 +8,19 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_each_target_has_auto_reply_checkbox_config():
-    config = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
-    assert config["targets"] == []
-    source = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert "self.target_auto_reply_vars" in source
-    assert "auto_reply_enabled" in source
+    config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    targets = config["targets"]
+    assert targets
+    assert all("auto_reply_enabled" in target for target in targets)
+    assert all(isinstance(target["auto_reply_enabled"], bool) for target in targets)
+    # The user can enable multiple contacts from the live window; keep 测试账号 as
+    # enabled in this local profile without rejecting other intentional choices.
+    assert "测试账号" in [target["name"] for target in targets if target["auto_reply_enabled"]]
+    assert "测试账号" in [
+        target["name"] for target in targets
+        if target.get("listen_enabled", target["auto_reply_enabled"])
+    ]
+    assert next(target for target in targets if target["name"] == "测试账号")["command_enabled"] is True
 
 
 def test_status_window_has_contact_checkboxes_and_persists_changes():
@@ -48,7 +56,7 @@ def test_status_page_has_outer_scroll_and_routes_wheel_to_nested_panels():
         "def _build_test_reply_target_labels", 1
     )[0]
 
-    assert 'page_scrollbar = tk.Scrollbar(' in setup_body
+    assert 'page_scrollbar = ttk.Scrollbar(' in setup_body
     assert 'scrollregion=page_canvas.bbox("all")' in setup_body
     assert 'self.root.bind_all("<MouseWheel>", _on_page_mousewheel)' in setup_body
     assert "command_canvas.yview_scroll(steps, \"units\")" not in setup_body
@@ -101,9 +109,12 @@ def test_contact_remarks_refresh_each_time_auto_reply_is_enabled_or_resumed():
 
 
 def test_auto_reply_and_listen_checkboxes_stay_consistent():
-    config = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     source = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert config["targets"] == []
+    assert all(
+        not target.get("auto_reply_enabled", True) or target.get("listen_enabled", target.get("auto_reply_enabled", True))
+        for target in config["targets"]
+    )
     assert "def _ensure_listen_for_auto_reply" in source
     assert "target[\"listen_enabled\"] = True" in source
     assert "target[\"auto_reply_enabled\"] = False" in source
@@ -144,7 +155,7 @@ class _FakeVar:
 
 class _FakeBridge:
     def __init__(self):
-        self.targets = {"联系人": "wxid_example_010"}
+        self.targets = {"联系人": "wxid_example_002"}
         self.added = []
         self.removed = []
         self.skipped = []
@@ -167,7 +178,7 @@ def _make_switch_app(auto_reply=False, listen=False):
         "enabled": True,
         "targets": [{
             "name": "联系人",
-            "username": "wxid_example_010",
+            "username": "wxid_example_002",
             "auto_reply_enabled": auto_reply,
             "listen_enabled": listen,
         }],
@@ -278,7 +289,7 @@ def test_unchecked_contact_skips_normal_auto_reply_but_command_path_stays_first(
 
 def test_unchecked_listen_contacts_are_not_registered_with_listener():
     source = (ROOT / "app.py").read_text(encoding="utf-8")
-    bridge_source = (ROOT / "wechat_reply" / "wechat_bridge.py").read_text(encoding="utf-8")
+    bridge_source = (ROOT / "reply_core" / "wechat_bridge.py").read_text(encoding="utf-8")
     assert "def _target_listen_enabled" in source
     assert "def _active_listen_targets" in source
     assert "active_targets = self._active_listen_targets()" in source
@@ -314,3 +325,7 @@ def test_live_log_and_collapsible_style_editor_are_present():
     assert "panel.grid_remove()" in source
     assert "启用 # 指令" in source
     assert "def _set_command_enabled" in source
+    assert "profile_scrollbar = ttk.Scrollbar(" in source
+    assert "yscrollcommand=profile_scrollbar.set" in source
+    assert "profile_scrollbar.configure(command=editor.yview)" in source
+    assert "widget is profile_editor" in source

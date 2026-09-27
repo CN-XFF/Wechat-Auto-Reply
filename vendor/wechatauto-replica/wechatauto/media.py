@@ -56,7 +56,7 @@ DEFAULT_SAVE_PATH = os.path.join(os.path.expanduser("~"), "Documents", "wechatau
 
 def _jpeg_like(pt: bytes) -> bool:
     return (
-        (pt[:3] == b"\xff\xd8\xff")
+        (pt[:3] == b"\test_account\xd8\test_account")
         or pt[:4] in (b"\x89PNG", b"GIF8", b"RIFF")
         or pt[:4] == b"wxgf"  # 微信动画表情容器
     )
@@ -71,7 +71,7 @@ def aligned_aes_block_size(aes_size: int) -> int:
 _FOOTER_MAX = 32
 
 _IMG_END_MARK = (
-    (b"\xff\xd8", b"\xff\xd9"),
+    (b"\test_account\xd8", b"\test_account\xd9"),
     (b"\x89PNG\r\n\x1a\n", b"\x49\x45\x4e\x44\xae\x42\x60\x82"),
 )
 
@@ -301,7 +301,7 @@ class MediaDownloader:
             except Exception as exc:
                 wxlog.debug(f'图片密钥试解失败：{exc!r}')
                 return False
-            return out[:3] == b"\xff\xd8\xff" or _jpeg_like(out)
+            return out[:3] == b"\test_account\xd8\test_account" or _jpeg_like(out)
 
         def _candidates(buf: bytes):
             for m in ASCII32_RE.finditer(buf):
@@ -419,7 +419,7 @@ class MediaDownloader:
         # 早期纯异或格式：逐字节 ^ 0xFF（无签名），按 JPEG/PNG 魔数回退判断
         for cand in (0x88, 0x30, 0xFF, 0xE9):
             out = bytes(b ^ cand for b in data)
-            if out[:3] == b"\xff\xd8\xff" or out[:4] == b"\x89PNG":
+            if out[:3] == b"\test_account\xd8\test_account" or out[:4] == b"\x89PNG":
                 return out
         raise ValueError("无法识别的图片加密格式: %s" % dat_path)
 
@@ -556,7 +556,7 @@ class MediaDownloader:
                 try:
                     with open(dst, "rb") as f:
                         out = f.read()
-                    return out if out[:3] == b"\xff\xd8\xff" else None
+                    return out if out[:3] == b"\test_account\xd8\test_account" else None
                 except OSError:
                     return None
         return None
@@ -590,7 +590,7 @@ class MediaDownloader:
             thumb = True
         data = self.decrypt_image(dat_path, aes_key, xor_key)
         suffix = "_thumb" if thumb else ""
-        if data[:3] == b"\xff\xd8\xff":
+        if data[:3] == b"\test_account\xd8\test_account":
             ext = "jpg"
         elif data[:4] == b"\x89PNG":
             ext = "png"
@@ -882,7 +882,7 @@ class MediaDownloader:
         if not h_dat:
             return None
         data = self.decrypt_image(h_dat, aes_key, xor_key)
-        if data[:3] == b"\xff\xd8\xff":
+        if data[:3] == b"\test_account\xd8\test_account":
             ext = "jpg"
         elif data[:4] == b"\x89PNG":
             ext = "png"

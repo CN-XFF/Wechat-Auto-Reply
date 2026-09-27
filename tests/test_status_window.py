@@ -21,12 +21,51 @@ def test_status_window_is_visible_and_stops_autoreply_when_closed():
     assert "self._persist_config()" in stop_body
 
 
+def test_stop_controls_stay_in_fixed_footer_outside_scrolling_content():
+    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    setup_body = source.split("def _setup_status_window", 1)[1].split(
+        "def _build_test_reply_target_labels", 1
+    )[0]
+
+    assert "page_shell = tk.Frame(self.root)" in setup_body
+    assert 'page_shell.grid(row=0, column=0, sticky="nsew")' in setup_body
+    assert "sticky_footer = tk.Frame(" in setup_body
+    assert 'self.root, borderwidth=1, relief="groove", padx=8, pady=4' in setup_body
+    assert 'sticky_footer.grid(row=1, column=0, sticky="ew", pady=(4, 0))' in setup_body
+    assert 'tk.Label(\n            sticky_footer,\n            textvariable=self.status_detail_var' in setup_body
+    assert 'text="关闭这个窗口会停止自动回复"' in setup_body
+    assert 'stop_button = tk.Button(\n            sticky_footer,\n            text="停止自动回复"' in setup_body
+    assert "stop_button.grid(row=0, column=1, rowspan=2" in setup_body
+    assert 'content,\n            textvariable=self.status_detail_var' not in setup_body
+    assert 'page_canvas = tk.Canvas(\n            page_shell' in setup_body
+    assert 'wraplength=500' in setup_body
+
+
+def test_status_window_uses_consistent_theme_and_highlighted_actions():
+    source = (ROOT / "app.py").read_text(encoding="utf-8")
+    setup_body = source.split("def _setup_status_window", 1)[1].split(
+        "def _build_test_reply_target_labels", 1
+    )[0]
+    theme_body = source.split("def _apply_ui_theme", 1)[1].split(
+        "def _setup_status_window", 1
+    )[0]
+
+    assert 'style.theme_use("clam")' in theme_body
+    assert 'style.configure(\n                "TCombobox"' in theme_body
+    assert 'bg=UI_COLORS["accent"]' in setup_body
+    assert 'bg=UI_COLORS["danger"]' in setup_body
+    assert 'highlightbackground=UI_COLORS["border"]' in setup_body
+    assert 'option_add("*Button.relief", "raised")' in theme_body
+    assert 'option_add("*Button.borderWidth", 1)' in theme_body
+
+
 def test_desktop_launcher_uses_pythonw_so_gui_window_can_show():
     script = (ROOT / "scripts" / "start_auto_reply.ps1").read_text(encoding="utf-8")
     assert "pythonw.exe" in script
     assert "-WindowStyle Hidden" not in script
-    assert "scripts\\start_auto_reply.ps1" in (ROOT / "start.ps1").read_text(encoding="utf-8")
-    assert "scripts\\stop_auto_reply.ps1" in (ROOT / "stop.ps1").read_text(encoding="utf-8")
+    desktop = Path("D:/Desktop")
+    assert "pause" not in (desktop / "开启自动回复.cmd").read_text(encoding="utf-8").lower()
+    assert "pause" not in (desktop / "关闭自动回复.cmd").read_text(encoding="utf-8").lower()
     assert "MainWindowTitle" in script
     assert "微信自动回复运行中" in script
 

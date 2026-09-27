@@ -43,7 +43,7 @@ def test_confirmed_send_runs_in_worker_and_returns_ui_event():
 
     worker = threading.Thread(
         target=app._send_confirmed_reply_background,
-        args=("Test Account", msg, "候选回复", decision, ui_context),
+        args=("测试账号", msg, "候选回复", decision, ui_context),
     )
     worker.start()
     worker.join(timeout=2)
@@ -52,7 +52,7 @@ def test_confirmed_send_runs_in_worker_and_returns_ui_event():
     assert send_threads and send_threads[0] != main_thread_id
     kind, target, event_msg, context, detail = app.events.get_nowait()
     assert (kind, target, event_msg, context, detail) == (
-        "confirm_send_success", "Test Account", msg, ui_context, ""
+        "confirm_send_success", "测试账号", msg, ui_context, ""
     )
 
 
@@ -90,7 +90,7 @@ def test_uncertain_confirm_send_failure_disables_retry_and_keeps_dialog_for_chec
     }
 
     app._finish_confirm_send(
-        "confirm_send_failed", "Test Account", {"sort_seq": 42}, context, "校验超时"
+        "confirm_send_failed", "测试账号", {"sort_seq": 42}, context, "校验超时"
     )
 
     assert send_state == {"sending": False, "failed": True}

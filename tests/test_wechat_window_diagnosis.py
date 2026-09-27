@@ -13,8 +13,8 @@ ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "vendor" / "wechatauto-replica"))
 sys.path.insert(0, str(ROOT))
 
-from wechat_reply import wechat_bridge as bridge_module  # noqa: E402
-from wechat_reply.wechat_bridge import WeChatBridge  # noqa: E402
+from reply_core import wechat_bridge as bridge_module  # noqa: E402
+from reply_core.wechat_bridge import WeChatBridge  # noqa: E402
 from wechatauto import guia as guia_module  # noqa: E402
 
 
@@ -23,7 +23,7 @@ def test_preferred_display_and_ocr_name_is_remark_else_wechat_nickname():
         "with-remark": {
             "username": "with-remark",
             "remark": "班长",
-            "nick_name": "饺子萱",
+            "nick_name": "联系人B",
         },
         "without-remark": {
             "username": "without-remark",
@@ -39,7 +39,7 @@ def test_preferred_display_and_ocr_name_is_remark_else_wechat_nickname():
 
 
 def test_bridge_has_read_only_wechat_window_diagnosis():
-    source = (ROOT / "wechat_reply" / "wechat_bridge.py").read_text(encoding="utf-8")
+    source = (ROOT / "reply_core" / "wechat_bridge.py").read_text(encoding="utf-8")
     diagnosis = source.split("def diagnose_wechat_window", 1)[1].split("def send", 1)[0]
     assert "recover" in diagnosis
     assert "recovery_actions" in diagnosis
@@ -62,7 +62,7 @@ def test_send_failure_logs_wechat_window_diagnosis():
 
 
 def test_bridge_can_restore_minimized_or_tray_wechat():
-    source = (ROOT / "wechat_reply" / "wechat_bridge.py").read_text(encoding="utf-8")
+    source = (ROOT / "reply_core" / "wechat_bridge.py").read_text(encoding="utf-8")
     assert "def _restore_window" in source
     assert "_restore_keep_maximize(ctypes.windll.user32, hwnd)" in source
     assert "ShowWindowAsync" not in source
@@ -551,7 +551,7 @@ def test_send_reports_occluded_window_as_foreground_failure_not_invisible():
     wx = VisibleButCoveredWindow()
     bridge._reusable_wechat_gui = lambda: wx
     try:
-        bridge._send_once("Test Account", "测试内容")
+        bridge._send_once("测试账号", "测试内容")
     except RuntimeError as exc:
         assert "仍可见" in str(exc)
         assert "未能切到前台" in str(exc)
@@ -566,14 +566,14 @@ def test_open_chat_stops_before_ocr_if_window_cannot_be_restored():
         AssertionError("contact OCR must not run while WeChat is hidden")
     )
 
-    assert gui.open_chat("Test Account") is False
+    assert gui.open_chat("测试账号") is False
 
 
 def fake_bridge():
     bridge = WeChatBridge.__new__(WeChatBridge)
     bridge.config = {"dry_run": False, "send_submit_method": "enter"}
-    bridge.targets = {"Test Account": "wxid_example_004"}
-    bridge.ui_names = {"Test Account": "Test Account.²"}
+    bridge.targets = {"测试账号": "wxid_example_004"}
+    bridge.ui_names = {"测试账号": "测试账号.²"}
     bridge.db = object()
     bridge._send_mark = lambda _username: set()
     bridge._verify_sent_db = lambda _username, _text, before: bool(before is not None)
@@ -604,7 +604,7 @@ def cacheable_send_bridge(monkeypatch):
         _cached_db = None
 
         def __init__(self):
-            self.active_chat = "Contact A"
+            self.active_chat = "联系人示例"
             state["constructed_on"].append(threading.get_ident())
 
         def ensure_visible(self):
@@ -636,14 +636,14 @@ def cacheable_send_bridge(monkeypatch):
     return bridge, state
 
 
-def test_send_restores_offscreen_window_and_opens_xff_not_current_chat(monkeypatch):
+def test_send_restores_offscreen_window_and_opens_test_account_not_current_chat(monkeypatch):
     bridge = fake_bridge()
     state = {"rect": (-32000, -32000, -30420, -30959), "opened": [], "sent": []}
 
     class FakeWeChat:
         main_hwnd = 123
         _cached_db = None
-        active_chat = "Contact A"
+        active_chat = "联系人示例"
 
         def ensure_visible(self):
             return True
@@ -669,9 +669,9 @@ def test_send_restores_offscreen_window_and_opens_xff_not_current_chat(monkeypat
     bridge._paste_text_win32 = lambda _wx, text: state["sent"].append(("paste", text))
     bridge._submit_once = lambda _wx, method: state["sent"].append(("submit", method))
 
-    bridge.send("Test Account", "测试消息")
+    bridge.send("测试账号", "测试消息")
 
-    assert state["opened"] == ["Test Account.²"]
+    assert state["opened"] == ["测试账号.²"]
     assert state["sent"] == [("paste", "测试消息"), ("submit", "enter")]
 
 
@@ -700,7 +700,7 @@ def test_send_refuses_when_correct_contact_cannot_be_confirmed(monkeypatch):
     bridge._submit_once = lambda *_args: state["sent"].append("submit")
 
     try:
-        bridge.send("Test Account", "不应发错人")
+        bridge.send("测试账号", "不应发错人")
     except RuntimeError as exc:
         assert "未执行发送" in str(exc)
     else:
@@ -713,14 +713,14 @@ def test_sequential_sends_reuse_window_on_one_ui_thread_when_input_is_unchanged(
     bridge, state = cacheable_send_bridge(monkeypatch)
     caller_thread = threading.get_ident()
     try:
-        bridge.send("Test Account", "第一条")
-        bridge.send("Test Account", "第二条")
+        bridge.send("测试账号", "第一条")
+        bridge.send("测试账号", "第二条")
     finally:
         bridge.stop()
 
     assert len(state["constructed_on"]) == 1
     assert len(state["visible_checks"]) == 2
-    assert state["opened"] == ["Test Account.²", "Test Account.²"]
+    assert state["opened"] == ["测试账号.²", "测试账号.²"]
     assert len(set(state["constructed_on"] + state["opened_on"])) == 1
     assert state["constructed_on"][0] != caller_thread
     assert state["sent"] == [
@@ -733,12 +733,12 @@ def test_sequential_send_relocates_after_input_or_window_change(monkeypatch):
     for change in ("input", "position"):
         bridge, state = cacheable_send_bridge(monkeypatch)
         try:
-            bridge.send("Test Account", "第一条")
+            bridge.send("测试账号", "第一条")
             if change == "input":
                 state["tick"] += 1
             else:
                 state["rect"] = (120, 100, 1520, 900)
-            bridge.send("Test Account", "第二条")
+            bridge.send("测试账号", "第二条")
         finally:
             bridge.stop()
 
@@ -762,7 +762,7 @@ def test_diagnosis_launches_or_shows_wechat_when_no_window_is_available(monkeypa
             return True
 
         def _chat_is_open(self, name):
-            return name == "Test Account.²"
+            return name == "测试账号.²"
 
     def create_wechat(**_kwargs):
         attempts["count"] += 1
@@ -776,58 +776,58 @@ def test_diagnosis_launches_or_shows_wechat_when_no_window_is_available(monkeypa
     bridge._window_rect = lambda _hwnd: (100, 100, 1500, 900)
     bridge._restore_window = lambda _hwnd: True
 
-    result = bridge.diagnose_wechat_window("Test Account", recover=True)
+    result = bridge.diagnose_wechat_window("测试账号", recover=True)
 
     assert attempts["launched"] == 1
     assert result["ensure_visible"] is True
     assert result["open_chat"] is True
     assert result["chat_is_open"] is True
-    assert attempts["opened"] == ["Test Account.²"]
+    assert attempts["opened"] == ["测试账号.²"]
 
 
 def test_short_ocr_contact_names_require_full_match():
     gui_class = bridge_module.WeChatGUI
 
-    assert gui_class._name_matches("Contact E", "Contact E") is True
-    assert gui_class._name_matches("聊天 Contact E", "Contact E") is True
-    assert gui_class._name_matches("逗", "Contact E") is False
-    assert gui_class._name_matches("龙", "Contact E") is False
-    assert gui_class._name_matches("Sample Contact", "Sample Contact") is True
+    assert gui_class._name_matches("逗龙", "逗龙") is True
+    assert gui_class._name_matches("聊天 逗龙", "逗龙") is True
+    assert gui_class._name_matches("逗", "逗龙") is False
+    assert gui_class._name_matches("龙", "逗龙") is False
+    assert gui_class._name_matches("件传输助", "文件传输助手") is True
 
 
 def test_clickable_contact_rows_are_stricter_than_title_ocr():
     gui_class = bridge_module.WeChatGUI
 
-    assert gui_class._contact_row_match_score("测试", "测试") == 100
-    assert gui_class._contact_row_match_score("0测试", "测试") == 90
-    assert gui_class._contact_row_match_score("测试微信怎么申请", "测试") == 0
-    assert gui_class._contact_row_match_score("Test Account 已收到", "Test Account") == 0
+    assert gui_class._contact_row_match_score("小号", "小号") == 100
+    assert gui_class._contact_row_match_score("0小号", "小号") == 90
+    assert gui_class._contact_row_match_score("小号微信怎么申请", "小号") == 0
+    assert gui_class._contact_row_match_score("测试账号 已收到", "测试账号") == 0
 
 
 def test_chat_title_match_rejects_group_titles_containing_the_person():
     gui_class = bridge_module.WeChatGUI
 
-    assert gui_class._chat_title_matches_contact("Contact C🥟", "Contact C🥟") is True
+    assert gui_class._chat_title_matches_contact("联系人B🥟", "联系人B🥟") is True
     assert gui_class._chat_title_matches_contact(
-        "Contact C🥟的聊天记录", "Contact C🥟") is True
+        "联系人B🥟的聊天记录", "联系人B🥟") is True
     assert gui_class._chat_title_matches_contact(
-        "Contact C🥟，3人群聊", "Contact C🥟") is False
+        "联系人B🥟，3人群聊", "联系人B🥟") is False
     assert gui_class._chat_title_matches_contact(
-        "Sample Contact", "Sample Contact") is True
-    assert gui_class._chat_title_matches_contact("Sample", "Sample Contact") is False
+        "文件传输助", "文件传输助手") is True
+    assert gui_class._chat_title_matches_contact("李昊", "李昊阳") is False
 
 
 def test_chat_is_open_does_not_trust_stale_row_or_group_title():
     gui = bridge_module.WeChatGUI.__new__(bridge_module.WeChatGUI)
-    gui._current_chat = "Contact C🥟"
+    gui._current_chat = "联系人B🥟"
     gui._direct_session_trusted_until = bridge_module.time.time() + 60
     gui.right_pane_left = 300
     gui.render_w = 1200
     gui.ocr_zoomed = lambda *_args, **_kwargs: [
-        ("Contact C🥟，3人群聊", 400, 20, 150, 30),
+        ("联系人B🥟，3人群聊", 400, 20, 150, 30),
     ]
 
-    assert gui._chat_is_open("Contact C🥟") is False
+    assert gui._chat_is_open("联系人B🥟") is False
 
 
 def test_contact_font_gate_rejects_small_or_low_contrast_preview_text():
@@ -845,13 +845,13 @@ def test_contact_font_gate_rejects_small_or_low_contrast_preview_text():
 
     gui._grab_screen = lambda _box: text_patch((220, 220, 220))
     assert gui._is_primary_contact_label(
-        {"name": "测试", "x": 10, "y": 100, "w": 40, "h": 18}) is True
+        {"name": "小号", "x": 10, "y": 100, "w": 40, "h": 18}) is True
 
     gui._grab_screen = lambda _box: text_patch((125, 125, 125))
     assert gui._is_primary_contact_label(
-        {"name": "测试", "x": 10, "y": 100, "w": 40, "h": 18}) is False
+        {"name": "小号", "x": 10, "y": 100, "w": 40, "h": 18}) is False
     assert gui._is_primary_contact_label(
-        {"name": "测试", "x": 10, "y": 100, "w": 40, "h": 12}) is False
+        {"name": "小号", "x": 10, "y": 100, "w": 40, "h": 12}) is False
 
 
 def test_unchanged_window_reuses_last_verified_input_point():
@@ -928,17 +928,17 @@ def test_ocr_line_rows_recovers_short_name_before_merged_timestamp():
     rect = lambda x, y, width, height: SimpleNamespace(
         x=x, y=y, width=width, height=height)
     line = SimpleNamespace(
-        text="测试18:00",
+        text="小号18:00",
         words=[
-            SimpleNamespace(text="测", bounding_rect=rect(40, 230, 10, 16)),
-            SimpleNamespace(text="试", bounding_rect=rect(51, 230, 10, 16)),
+            SimpleNamespace(text="小", bounding_rect=rect(40, 230, 10, 16)),
+            SimpleNamespace(text="号", bounding_rect=rect(51, 230, 10, 16)),
             SimpleNamespace(text="18:00", bounding_rect=rect(90, 230, 38, 16)),
         ],
     )
 
     rows = guia_module.ScreenOCR._line_rows(line)
 
-    assert ("测试", 40, 230, 21, 16) in rows
+    assert ("小号", 40, 230, 21, 16) in rows
     assert not any(y == 0 for _text, _x, y, _w, _h in rows)
 
 
@@ -948,10 +948,10 @@ def test_top_session_scan_is_generic_and_uses_stable_row_click_point():
     gui.render_h = 1000
     seen = []
     gui.ocr_zoomed = lambda region, scale: seen.append((region, scale)) or [
-        ("Contact D", 28, 264, 36, 18),
+        ("赵薇", 28, 264, 36, 18),
     ]
 
-    point = gui._scan_top_session("Contact D")
+    point = gui._scan_top_session("赵薇")
 
     assert point == (124, 273)
     assert seen == [((0, 50, 240, 450), 4)]
@@ -962,11 +962,11 @@ def test_top_session_scan_rejects_multiple_matching_rows():
     gui.sidebar_right = 240
     gui.render_h = 1000
     gui.ocr_zoomed = lambda *_args, **_kwargs: [
-        ("Contact E", 28, 230, 36, 18),
-        ("Contact E", 28, 330, 36, 18),
+        ("逗龙", 28, 230, 36, 18),
+        ("逗龙", 28, 330, 36, 18),
     ]
 
-    assert gui._scan_top_session("Contact E") is None
+    assert gui._scan_top_session("逗龙") is None
 
 
 def test_switching_wechat_window_resets_reply_coordinate_reference(monkeypatch):
@@ -1020,12 +1020,12 @@ def test_visible_session_uses_row_center_not_ocr_text_center(monkeypatch):
     gui = bridge_module.WeChatGUI.__new__(bridge_module.WeChatGUI)
     gui.sidebar_right = 400
     gui.get_sessions = lambda **_kwargs: [
-        {"name": "测试", "x": 120, "y": 250, "w": 40, "h": 30},
+        {"name": "小号", "x": 120, "y": 250, "w": 40, "h": 30},
     ]
     gui._input = SimpleNamespace(_user32=SimpleNamespace())
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui.find_session("测试", max_scroll=0) == (208, 265)
+    assert gui.find_session("小号", max_scroll=0) == (208, 265)
 
 
 def test_get_sessions_keeps_contact_name_when_render_crop_shifts_it_left():
@@ -1033,14 +1033,14 @@ def test_get_sessions_keeps_contact_name_when_render_crop_shifts_it_left():
     gui.sidebar_right = 366
     gui.render_h = 1000
     gui.ocr = lambda _box: [
-        ("测试", 40, 235, 18, 16),  # 截图实测：相对 x=40，旧 25% 阈值会误删。
+        ("小号", 40, 235, 18, 16),  # 截图实测：相对 x=40，旧 25% 阈值会误删。
         ("头像噪声", 20, 235, 24, 16),
-        ("Contact A", 120, 335, 48, 16),
+        ("联系人示例", 120, 335, 48, 16),
     ]
 
     rows = gui.get_sessions()
 
-    assert [row["name"] for row in rows] == ["测试", "Contact A"]
+    assert [row["name"] for row in rows] == ["小号", "联系人示例"]
 
 
 def test_find_session_progressively_scrolls_list_before_giving_up(monkeypatch):
@@ -1054,7 +1054,7 @@ def test_find_session_progressively_scrolls_list_before_giving_up(monkeypatch):
 
     def get_sessions(zoomed=False):
         if state["page"] >= 3:
-            return [{"name": "测试", "x": 120, "y": 200, "w": 40, "h": 20}]
+            return [{"name": "小号", "x": 120, "y": 200, "w": 40, "h": 20}]
         return [{"name": "其他会话", "x": 120, "y": 100, "w": 60, "h": 20}]
 
     def wheel(delta):
@@ -1068,7 +1068,7 @@ def test_find_session_progressively_scrolls_list_before_giving_up(monkeypatch):
     gui.wx_wheel = wheel
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui.find_session("测试", max_scroll=3) == (208, 210)
+    assert gui.find_session("小号", max_scroll=3) == (208, 210)
     assert state["scrolls"][:2] == [1200, 1200]
     assert state["scrolls"][2:] == [-360, -360, -360]
 
@@ -1083,7 +1083,7 @@ def test_find_session_returns_to_top_before_searching_for_first_contact(monkeypa
     gui._input = SimpleNamespace(_user32=SimpleNamespace(SetCursorPos=lambda *_args: None))
 
     def get_sessions(zoomed=False):
-        name = "测试" if state["page"] == 0 else f"其他会话{state['page']}"
+        name = "小号" if state["page"] == 0 else f"其他会话{state['page']}"
         return [{"name": name, "x": 120, "y": 80, "w": 40, "h": 20}]
 
     def wheel(delta):
@@ -1099,7 +1099,7 @@ def test_find_session_returns_to_top_before_searching_for_first_contact(monkeypa
     gui.wx_wheel = wheel
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui.find_session("测试", max_scroll=3) == (208, 90)
+    assert gui.find_session("小号", max_scroll=3) == (208, 90)
     assert state["page"] == 0
     assert len(state["scrolls"]) >= 7
     assert all(delta > 0 for delta in state["scrolls"])
@@ -1128,9 +1128,9 @@ def test_visible_session_does_not_fall_back_to_search_after_row_is_selected():
         AssertionError("a visible matched row must not trigger search")
     )
 
-    assert gui.open_chat("测试") is True
-    assert scans == [("测试", 3)]
-    assert gui._current_chat == "测试"
+    assert gui.open_chat("小号") is True
+    assert scans == [("小号", 3)]
+    assert gui._current_chat == "小号"
 
 
 def test_message_automation_never_initializes_uia(monkeypatch):
@@ -1158,11 +1158,11 @@ def test_search_mistarget_guard_uses_ocr_and_clears_exact_draft():
     seen = []
     keys = []
     gui.ocr_zoomed = lambda box, scale: seen.append((box, scale)) or [
-        ("Contact B", 500, 800, 80, 24)
+        ("联系人A", 500, 800, 80, 24)
     ]
     gui._input = SimpleNamespace(key=lambda *args, **kwargs: keys.append((args, kwargs)))
 
-    assert gui._typed_into_chat_input("Contact B") is True
+    assert gui._typed_into_chat_input("联系人A") is True
     assert seen == [((312, 720, 1588, 940), 2)]
     assert len(keys) == 2
 
@@ -1173,10 +1173,10 @@ def test_search_mistarget_guard_does_not_clear_unconfirmed_draft():
     gui.render_w = 1600
     gui.right_pane_left = 300
     keys = []
-    gui.ocr_zoomed = lambda *_args, **_kwargs: [("Contact B你好", 500, 800, 120, 24)]
+    gui.ocr_zoomed = lambda *_args, **_kwargs: [("联系人A你好", 500, 800, 120, 24)]
     gui._input = SimpleNamespace(key=lambda *args, **kwargs: keys.append((args, kwargs)))
 
-    assert gui._typed_into_chat_input("Contact B") is False
+    assert gui._typed_into_chat_input("联系人A") is False
     assert keys == []
 
 
@@ -1186,7 +1186,7 @@ def test_nonempty_old_chat_pane_does_not_confirm_target(monkeypatch):
     gui._pane_has_content = lambda: True
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui._chat_open_confirmed("Contact E") is False
+    assert gui._chat_open_confirmed("逗龙") is False
 
 
 def test_open_chat_scrolls_chat_list_before_search_fallback():
@@ -1208,8 +1208,8 @@ def test_open_chat_scrolls_chat_list_before_search_fallback():
     gui.find_session = find_session
     gui._search_chat = search_chat
 
-    assert gui.open_chat("Contact E") is False
-    assert events == [("scan", "Contact E", 3), ("search", "Contact E")]
+    assert gui.open_chat("逗龙") is False
+    assert events == [("scan", "逗龙", 3), ("search", "逗龙")]
 
 
 def test_find_session_scrolls_to_top_before_matching_contact_rows(monkeypatch):
@@ -1226,7 +1226,7 @@ def test_find_session_scrolls_to_top_before_matching_contact_rows(monkeypatch):
 
     def get_sessions(zoomed=False):
         events.append(("view", state["view"], zoomed))
-        name = "测试" if state["view"] == "top" else "其他会话"
+        name = "小号" if state["view"] == "top" else "其他会话"
         return [{"name": name, "x": 90, "y": 80, "w": 40, "h": 20}]
 
     def wheel(delta):
@@ -1242,7 +1242,7 @@ def test_find_session_scrolls_to_top_before_matching_contact_rows(monkeypatch):
     gui._session_row_click_point = lambda _row: (110, 90)
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui.find_session("测试", max_scroll=3) == (110, 90)
+    assert gui.find_session("小号", max_scroll=3) == (110, 90)
     first_match = next(i for i, event in enumerate(events)
                        if isinstance(event, tuple) and event[0] == "match")
     first_up = next(i for i, event in enumerate(events)
@@ -1270,7 +1270,7 @@ def test_find_session_avoids_duplicate_top_scan_and_bounds_zoom_vote_retries(mon
     gui.wx_wheel = lambda _delta: None
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui.find_session("测试", max_scroll=1) is None
+    assert gui.find_session("小号", max_scroll=1) is None
     # 初始视口 + 两次归顶确认 + 一次普通 OCR；放大 OCR 最多补到四轮。
     assert calls[:8] == [False, False, False, False, True, True, True, True]
 
@@ -1291,15 +1291,132 @@ def test_find_session_recovers_short_name_after_intermittent_zoom_ocr_miss(monke
             return [{"name": "其他会话", "x": 120, "y": 100, "w": 60, "h": 20}]
         state["zoomed_calls"] += 1
         if state["zoomed_calls"] in (1, 4):
-            return [{"name": "测试", "x": 147, "y": 444, "w": 18, "h": 16}]
+            return [{"name": "小号", "x": 147, "y": 444, "w": 18, "h": 16}]
         return []
 
     gui.get_sessions = get_sessions
     gui.wx_wheel = lambda _delta: None
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui.find_session("测试", max_scroll=1) == (156, 452)
+    assert gui.find_session("小号", max_scroll=1) == (156, 452)
     assert state["zoomed_calls"] == 4
+
+
+def test_search_chat_only_uses_search_box_without_scanning_chat_list():
+    gui = guia_module.WeChatGUI.__new__(guia_module.WeChatGUI)
+    calls = []
+    gui.main_hwnd = 1
+    gui._current_chat = None
+    gui.ensure_visible = lambda: calls.append("visible") or True
+    gui._update_render_rect = lambda: calls.append("refresh")
+    gui._search_chat = lambda name, *, use_ctrl_f=False: calls.append(
+        ("search_box", name, use_ctrl_f)
+    ) or True
+    gui._find_chat_window = lambda _name: 0
+    gui._chat_open_confirmed = lambda name: calls.append(("confirm", name)) or True
+    gui.find_session = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("search-only test must not scan the chat list")
+    )
+
+    assert gui.search_chat_only("小号") is True
+    assert calls == [
+        "visible", "refresh", ("search_box", "小号", True), ("confirm", "小号")
+    ]
+    assert gui._current_chat == "小号"
+
+
+def test_search_only_uses_ctrl_f_and_enter_without_result_coordinates(monkeypatch):
+    gui = bridge_module.WeChatGUI.__new__(bridge_module.WeChatGUI)
+    key_calls = []
+    clicks = []
+    refreshes = []
+    gui.render_hwnd = 10
+    gui.origin_x = 0
+    gui.origin_y = 0
+    gui.sidebar_right = 400
+    gui.render_h = 1000
+    gui._input = SimpleNamespace(
+        key=lambda vk, ctrl=False, shift=False: key_calls.append((vk, ctrl, shift))
+    )
+    gui._update_render_rect = lambda: refreshes.append(True)
+    gui._search_field_click_point = lambda _name: (_ for _ in ()).throw(
+        AssertionError("Ctrl+F route must not depend on the OCR search-box anchor")
+    )
+    gui.set_clipboard = lambda text: key_calls.append(("clipboard", text))
+    gui._typed_into_chat_input = lambda _name: False
+    gui._search_query_visible = lambda _name: (_ for _ in ()).throw(
+        AssertionError("Ctrl+F Enter route must not be gated by query OCR")
+    )
+    gui.ocr_zoomed = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("Enter route must not OCR or click result-row coordinates")
+    )
+    gui.wx_click = lambda *args: clicks.append(args)
+    monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
+
+    assert gui._search_chat("小号", use_ctrl_f=True) is True
+    assert refreshes == [True]
+    assert key_calls == [
+        (guia_module.VK_F, True, False),
+        (guia_module.VK_A, True, False),
+        ("clipboard", "小号"),
+        (guia_module.VK_V, True, False),
+        (guia_module.VK_RETURN, False, False),
+    ]
+    assert clicks == []
+
+
+def test_ctrl_f_search_enters_first_result_when_search_query_ocr_is_unavailable(monkeypatch):
+    gui = bridge_module.WeChatGUI.__new__(bridge_module.WeChatGUI)
+    clicks = []
+    key_calls = []
+    gui.render_hwnd = 0
+    gui.origin_x = 0
+    gui.origin_y = 0
+    gui.sidebar_right = 400
+    gui.render_h = 1000
+    gui._input = SimpleNamespace(
+        key=lambda vk, ctrl=False, shift=False: key_calls.append((vk, ctrl, shift))
+    )
+    gui.set_clipboard = lambda _text: None
+    gui._typed_into_chat_input = lambda _name: False
+    gui._search_query_visible = lambda _name: (_ for _ in ()).throw(
+        AssertionError("Ctrl+F Enter route must not require query OCR")
+    )
+    gui.wx_click = lambda *args: clicks.append(args)
+    monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
+
+    assert gui._search_chat("小号", use_ctrl_f=True) is True
+    assert clicks == []
+    assert key_calls.count((guia_module.VK_RETURN, False, False)) == 1
+
+
+def test_ctrl_f_search_does_not_enter_if_query_was_pasted_into_chat_draft(monkeypatch):
+    gui = bridge_module.WeChatGUI.__new__(bridge_module.WeChatGUI)
+    key_calls = []
+    gui.render_hwnd = 0
+    gui._input = SimpleNamespace(
+        key=lambda vk, ctrl=False, shift=False: key_calls.append((vk, ctrl, shift))
+    )
+    gui.set_clipboard = lambda _text: None
+    gui._typed_into_chat_input = lambda _name: True
+    monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
+
+    assert gui._search_chat("小号", use_ctrl_f=True) is False
+    assert (guia_module.VK_RETURN, False, False) not in key_calls
+
+
+def test_search_only_rejects_enter_result_when_chat_title_is_not_exact():
+    gui = guia_module.WeChatGUI.__new__(guia_module.WeChatGUI)
+    gui.main_hwnd = 1
+    gui._current_chat = None
+    gui.ensure_visible = lambda: True
+    gui._update_render_rect = lambda: None
+    gui._search_chat = lambda _name, *, use_ctrl_f=False: use_ctrl_f
+    gui._find_chat_window = lambda _name: 0
+    gui._chat_open_confirmed = lambda _name: False
+
+    assert gui.search_chat_only("小号") is False
+    assert gui._current_chat is None
 
 
 def test_search_refuses_to_click_results_when_search_field_did_not_receive_query(monkeypatch):
@@ -1317,7 +1434,7 @@ def test_search_refuses_to_click_results_when_search_field_did_not_receive_query
     gui._search_query_visible = lambda _name: False
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui._search_chat("测试") is False
+    assert gui._search_chat("小号") is False
     assert clicks == [(60, 20)]  # 只点搜索框；没有点任何搜索结果。
 
 
@@ -1343,7 +1460,7 @@ def test_search_retries_unconfirmed_field_anchor_before_clicking(monkeypatch):
     gui._search_query_visible = lambda _name: False
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui._search_chat("测试") is False
+    assert gui._search_chat("小号") is False
     assert len(anchors) == 3
     assert len(refreshes) == 3
     assert clicks == [(60, 20)]  # 只有 OCR 锚定成功后才点击。
@@ -1362,7 +1479,7 @@ def test_search_refuses_to_click_when_ocr_sees_mini_program_not_search_field():
     gui._input = SimpleNamespace(key=lambda *_args, **_kwargs: None)
     gui.set_clipboard = lambda _text: None
 
-    assert gui._search_chat("测试") is False
+    assert gui._search_chat("小号") is False
     assert clicks == []
 
 
@@ -1371,13 +1488,13 @@ def test_search_field_anchor_accepts_only_placeholder_or_current_query():
     gui.search_box = (70, 40, 340, 80)
     gui.ocr_zoomed = lambda *_args, **_kwargs: [("搜索", 100, 50, 40, 20)]
 
-    assert gui._search_field_click_point("测试") == (120, 60)
+    assert gui._search_field_click_point("小号") == (120, 60)
 
-    gui.ocr_zoomed = lambda *_args, **_kwargs: [("0测试", 100, 50, 40, 20)]
-    assert gui._search_field_click_point("测试") == (120, 60)
+    gui.ocr_zoomed = lambda *_args, **_kwargs: [("0小号", 100, 50, 40, 20)]
+    assert gui._search_field_click_point("小号") == (120, 60)
 
     gui.ocr_zoomed = lambda *_args, **_kwargs: [("搜索网络结果", 100, 50, 80, 20)]
-    assert gui._search_field_click_point("测试") is None
+    assert gui._search_field_click_point("小号") is None
 
 
 def test_search_field_anchor_recovers_small_layout_drift_from_sidebar_header():
@@ -1390,7 +1507,7 @@ def test_search_field_anchor_recovers_small_layout_drift_from_sidebar_header():
         [("搜索", 100, 50, 40, 20)] if box == header else []
     )
 
-    assert gui._search_field_click_point("测试") == (120, 60)
+    assert gui._search_field_click_point("小号") == (120, 60)
 
 
 def test_sidebar_ratio_refresh_reads_only_the_top_search_anchor():
@@ -1526,7 +1643,7 @@ def test_bridge_aborts_if_contact_is_not_confirmed_before_submit(
     bridge.config = {"win32_input_x_ratio": 0.26, "win32_input_y_ratio": 0.78}
     bridge.db = object()
     bridge.targets = {"target": "stable-target-id"}
-    bridge.ui_names = {"target": "Sample Contact"}
+    bridge.ui_names = {"target": "李昊阳"}
     bridge._reusable_wechat_gui = lambda: wx
     bridge._send_mark = lambda _username: set()
     bridge._window_rect = lambda _hwnd: (0, 0, 1000, 800)
@@ -1550,10 +1667,10 @@ def test_search_query_verification_uses_verified_header_fallback():
     gui.render_h = 1000
     header = gui._search_header_band()
     gui.ocr_zoomed = lambda box, **_kwargs: (
-        [("测试", 100, 50, 40, 20)] if box == header else []
+        [("小号", 100, 50, 40, 20)] if box == header else []
     )
 
-    assert gui._search_query_visible("测试") is True
+    assert gui._search_query_visible("小号") is True
 
 
 def test_search_never_clicks_a_small_program_result_for_contact_name():
@@ -1573,10 +1690,10 @@ def test_search_never_clicks_a_small_program_result_for_contact_name():
     gui.origin_y = 0
     gui.ocr_zoomed = lambda *_args, **_kwargs: [
         ("小程序", 110, 120, 60, 24),
-        ("测试", 120, 160, 50, 24),
+        ("小号", 120, 160, 50, 24),
     ]
 
-    assert gui._search_chat("测试") is False
+    assert gui._search_chat("小号") is False
     assert all(y == 55 for _x, y in clicks)
 
 
@@ -1596,12 +1713,12 @@ def test_search_can_select_contact_before_small_program_section():
     gui.origin_y = 0
     gui.ocr_zoomed = lambda *_args, **_kwargs: [
         ("联系人", 110, 100, 60, 24),
-        ("测试", 120, 140, 50, 24),
+        ("小号", 120, 140, 50, 24),
         ("小程序", 110, 200, 60, 24),
-        ("测试", 120, 240, 50, 24),
+        ("小号", 120, 240, 50, 24),
     ]
 
-    assert gui._search_chat("测试") is True
+    assert gui._search_chat("小号") is True
     assert clicks == [(100, 55), (208, 152)]
 
 
@@ -1622,11 +1739,11 @@ def test_search_ignores_every_result_below_network_search_section(monkeypatch):
     gui.origin_y = 0
     gui.ocr_zoomed = lambda *_args, **_kwargs: [
         ("搜索网络结果", 30, 120, 140, 24),
-        ("测试", 30, 160, 60, 24),
+        ("小号", 30, 160, 60, 24),
     ]
     monkeypatch.setattr(bridge_module.time, "sleep", lambda _seconds: None)
 
-    assert gui._search_chat("测试") is False
+    assert gui._search_chat("小号") is False
     assert clicks == [(40, 30)]
 
 
@@ -1648,5 +1765,5 @@ def test_active_visible_row_without_verified_title_is_not_trusted():
     gui.wx_click = lambda *_args: clicked.append(_args)
     gui._search_chat = lambda _name: False
 
-    assert gui.open_chat("Contact E") is False
+    assert gui.open_chat("逗龙") is False
     assert clicked == []

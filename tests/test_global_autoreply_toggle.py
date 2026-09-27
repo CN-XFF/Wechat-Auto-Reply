@@ -42,9 +42,9 @@ def test_status_window_has_global_autoreply_switch():
 
 
 def test_turning_global_switch_off_persists_and_discards_queued_replies(tmp_path):
-    targets = [{"name": "Contact A", "listen_enabled": True, "auto_reply_enabled": True}]
+    targets = [{"name": "联系人示例", "listen_enabled": True, "auto_reply_enabled": True}]
     app = _make_app(tmp_path, enabled=True, targets=targets)
-    app.pending_batches = {"Contact A": {"items": [({}, "waiting message")]}}
+    app.pending_batches = {"联系人示例": {"items": [({}, "waiting message")]}}
 
     assert app._set_global_auto_reply_enabled(False) is True
 
@@ -58,12 +58,12 @@ def test_turning_global_switch_off_persists_and_discards_queued_replies(tmp_path
 
 
 def test_turning_global_switch_on_preserves_contact_settings_and_skips_old_messages(tmp_path):
-    targets = [{"name": "Test Account", "listen_enabled": True, "auto_reply_enabled": False}]
+    targets = [{"name": "测试账号", "listen_enabled": True, "auto_reply_enabled": False}]
     app = _make_app(tmp_path, enabled=False, targets=targets)
     skipped = []
     remarks = []
     app.bridge = SimpleNamespace(skip_existing_messages=skipped.append)
-    app._active_listen_targets = lambda: ["Test Account"]
+    app._active_listen_targets = lambda: ["测试账号"]
     app._refresh_target_remarks = remarks.append
 
     assert app._set_global_auto_reply_enabled(True) is True
@@ -73,7 +73,7 @@ def test_turning_global_switch_on_preserves_contact_settings_and_skips_old_messa
     assert app.config["targets"] == targets
     assert app.global_auto_reply_var.get() is True
     assert "开启" in app.header_status_var.get()
-    assert skipped == [["Test Account"]]
+    assert skipped == [["测试账号"]]
     assert remarks == ["恢复自动回复时"]
 
 
@@ -90,7 +90,7 @@ def test_old_generation_cannot_send_after_global_pause_and_resume():
     app._keyboard_input_detected = lambda: False
     app._user_replied_after_incoming = lambda _name, _msg: False
 
-    reason = app._cancel_reason_before_reply("Contact A", {"_reply_epoch": 1})
+    reason = app._cancel_reason_before_reply("联系人示例", {"_reply_epoch": 1})
 
     assert reason == "自动回复暂停期间的旧任务已丢弃"
 

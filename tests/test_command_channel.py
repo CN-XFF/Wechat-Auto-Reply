@@ -17,13 +17,12 @@ def test_command_channel_is_before_enabled_gate_and_only_for_hash_messages():
 
 
 def test_command_password_and_codex_exec_channel_are_configured():
-    config = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
     source = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert config["command_contact"] == ""
-    assert config["command_contact_username"] == ""
-    assert config["command_password"] == ""
-    assert config["command_channel_enabled"] is False
-    assert config["codex_command_enabled"] is False
+    assert config["command_contact"] == "测试账号"
+    assert config["command_contact_username"] == "wxid_example_004"
+    assert config["command_password"] == "071122"
+    assert config["codex_command_enabled"] is True
     assert "codex_executable, \"exec\"" in source
     assert "--sandbox\", \"workspace-write\"" in source
 
@@ -47,8 +46,8 @@ def test_codex_result_receipt_bypasses_manual_reply_cancellation_gate():
         ),
     )
 
-    assert app._send_command_reply("Test Account", "Codex 执行完成：已处理") is True
-    assert sent == [("Test Account", "Codex 执行完成：已处理")]
+    assert app._send_command_reply("测试账号", "Codex 执行完成：已处理") is True
+    assert sent == [("测试账号", "Codex 执行完成：已处理")]
 
 
 def test_selected_contacts_can_enqueue_commands_after_username_binding():
@@ -57,41 +56,41 @@ def test_selected_contacts_can_enqueue_commands_after_username_binding():
     from app import Application
 
     trusted_username = "wxid_example_004"
-    other_username = "wxid_example_005"
-    disabled_username = "wxid_example_006"
+    other_username = "wxid_example_006_contact"
+    disabled_username = "wxid_example_003"
     queued = []
     app = Application.__new__(Application)
     app.config = {
-        "command_contact": "Test Account",
+        "command_contact": "测试账号",
         "command_contact_username": trusted_username,
         "command_channel_enabled": True,
-        "command_password": "TEST_ONLY_SECRET_001",
+        "command_password": "071122",
         "targets": [
-            {"name": "Test Account", "username": trusted_username, "command_enabled": True},
+            {"name": "测试账号", "username": trusted_username, "command_enabled": True},
             {"name": "Other", "username": other_username, "command_enabled": True},
             {"name": "Disabled", "username": disabled_username, "command_enabled": False},
         ],
     }
     app.bridge = SimpleNamespace(
         targets={
-            "Test Account": trusted_username,
+            "测试账号": trusted_username,
             "Other": other_username,
             "Disabled": disabled_username,
         }
     )
     app.events = SimpleNamespace(put=queued.append)
 
-    assert app._handle_command_if_any("Other", "#sample-test-secret+查看状态") is True
+    assert app._handle_command_if_any("Other", "#071122+查看状态") is True
     assert queued[0][0:2] == ("command", "Other")
-    assert app._handle_command_if_any("Disabled", "#sample-test-secret+修改电脑文件") is False
-    assert app._handle_command_if_any("Test Account", "#wrong+修改电脑文件") is True
+    assert app._handle_command_if_any("Disabled", "#071122+修改电脑文件") is False
+    assert app._handle_command_if_any("测试账号", "#wrong+修改电脑文件") is True
     assert len(queued) == 1
-    app.bridge.targets["Other"] = "wxid_example_007"
-    assert app._handle_command_if_any("Other", "#sample-test-secret+修改电脑文件") is True
+    app.bridge.targets["Other"] = "wxid_example_001"
+    assert app._handle_command_if_any("Other", "#071122+修改电脑文件") is True
     assert len(queued) == 1
     app.bridge.targets["Other"] = other_username
     app.config["command_channel_enabled"] = False
-    assert app._handle_command_if_any("Other", "#sample-test-secret+查看状态") is True
+    assert app._handle_command_if_any("Other", "#071122+查看状态") is True
     assert len(queued) == 1
 
 
@@ -103,16 +102,16 @@ def test_command_execution_methods_recheck_selected_contact(monkeypatch):
 
     app = Application.__new__(Application)
     app.config = {
-        "command_contact": "Test Account",
+        "command_contact": "测试账号",
         "command_contact_username": "wxid_example_004",
         "codex_command_enabled": True,
         "targets": [
-            {"name": "Test Account", "username": "wxid_example_004", "command_enabled": True},
-            {"name": "Other", "username": "wxid_example_005", "command_enabled": False},
+            {"name": "测试账号", "username": "wxid_example_004", "command_enabled": True},
+            {"name": "Other", "username": "wxid_example_006_contact", "command_enabled": False},
         ],
     }
     app.bridge = SimpleNamespace(
-        targets={"Test Account": "wxid_example_004", "Other": "wxid_example_005"}
+        targets={"测试账号": "wxid_example_004", "Other": "wxid_example_006_contact"}
     )
     receipts = []
     app._send_command_reply = lambda target, text: receipts.append((target, text)) or True
@@ -135,14 +134,14 @@ def test_command_response_contact_falls_back_to_another_selected_contact():
     app = Application.__new__(Application)
     app.config = {
         "command_channel_enabled": True,
-        "resend_confirmation_contact": "Test Account",
-        "command_contact": "Test Account",
+        "resend_confirmation_contact": "测试账号",
+        "command_contact": "测试账号",
         "targets": [
-            {"name": "Test Account", "username": "wxid_example_002", "command_enabled": False},
-            {"name": "Other", "username": "wxid_example_008", "command_enabled": True},
+            {"name": "测试账号", "username": "wxid_example_009", "command_enabled": False},
+            {"name": "Other", "username": "wxid_example_006", "command_enabled": True},
         ],
     }
-    app.bridge = SimpleNamespace(targets={"Test Account": "wxid_example_002", "Other": "wxid_example_008"})
+    app.bridge = SimpleNamespace(targets={"测试账号": "wxid_example_009", "Other": "wxid_example_006"})
 
     assert app._command_response_contact() == "Other"
     app.config["command_channel_enabled"] = False
@@ -154,7 +153,7 @@ def test_duplicate_username_aliases_cannot_be_authorized():
 
     from app import Application
 
-    shared_username = "wxid_example_009"
+    shared_username = "wxid_example_008"
     app = Application.__new__(Application)
     app.config = {
         "command_channel_enabled": True,
@@ -172,7 +171,7 @@ def test_duplicate_username_aliases_cannot_be_authorized():
 
 
 def test_normal_reply_codex_runs_in_read_only_sandbox():
-    source = (ROOT / "wechat_reply" / "engine.py").read_text(encoding="utf-8")
+    source = (ROOT / "reply_core" / "engine.py").read_text(encoding="utf-8")
     assert '"--sandbox", "read-only"' in source
 
 

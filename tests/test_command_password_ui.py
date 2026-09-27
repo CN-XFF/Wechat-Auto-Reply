@@ -60,7 +60,7 @@ def test_dedicated_command_panel_has_contact_selection_and_shared_password():
 
 def test_saving_password_persists_new_value_without_logging_it(tmp_path, caplog):
     app = Application.__new__(Application)
-    app.config = {"command_password": "TEST_ONLY_SECRET_002"}
+    app.config = {"command_password": "old-value"}
     app.config_path = tmp_path / "config.json"
     app.status_detail_var = FakeVar("")
     app.command_password_widget = FakeEntry("new-value")
@@ -75,7 +75,7 @@ def test_saving_password_persists_new_value_without_logging_it(tmp_path, caplog)
 
 def test_empty_password_is_rejected_and_old_value_restored(tmp_path):
     app = Application.__new__(Application)
-    app.config = {"command_password": "TEST_ONLY_SECRET_002"}
+    app.config = {"command_password": "old-value"}
     app.config_path = tmp_path / "config.json"
     app.status_detail_var = FakeVar("")
     app.command_password_widget = FakeEntry("  ")

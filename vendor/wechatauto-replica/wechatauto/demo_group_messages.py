@@ -306,7 +306,7 @@ def classify_message(row: dict, nickname_map: dict) -> dict:
     if local_type == RED_PACKET_TYPE and text:
         extra = parse_red_packet(text)
 
-    # 发送者：优先 content 前缀 "wxid_xxx: "，其次 XML 的 fromusername
+    # 发送者：优先 content 前缀 "wxid_example_102: "，其次 XML 的 fromusername
     sender = ""
     if extra.get("fromusername"):
         fw = extra["fromusername"]
@@ -338,7 +338,7 @@ def classify_message(row: dict, nickname_map: dict) -> dict:
               or display.lstrip("\ufeff \t\r\n").startswith("<msg")):
             display = summarize_payload(display, label)
         elif cut:
-            display = display[cut:]        # 去掉 "wxid_xxx: " 前缀（文本等）
+            display = display[cut:]        # 去掉 "wxid_example_102: " 前缀（文本等）
 
     return {
         "local_id": row.get("local_id"),

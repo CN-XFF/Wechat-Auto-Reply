@@ -13,7 +13,7 @@ import app as app_module  # noqa: E402
 from app import Application  # noqa: E402
 
 
-def test_send_failure_asks_xff_before_resend():
+def test_send_failure_asks_test_account_before_resend():
     source = (ROOT / "app.py").read_text(encoding="utf-8")
     delayed = source.split("def _delayed_send", 1)[1].split("def _confirm_dialog", 1)[0]
     assert "self._ask_resend_confirmation(" in delayed
@@ -60,24 +60,24 @@ def test_confirm_resend_starts_background_work_and_rejects_duplicate(monkeypatch
 
     monkeypatch.setattr(app_module.threading, "Thread", FakeThread)
     app = Application.__new__(Application)
-    app.config = {"command_password": "TEST_ONLY_SECRET_003"}
-    app.pending_resend = {"target_name": "Sample Contact", "reply": "候选回复"}
+    app.config = {"command_password": "test"}
+    app.pending_resend = {"target_name": "李昊阳", "reply": "候选回复"}
     app._set_status = lambda _text: None
     receipts = []
     app._send_command_reply_async = lambda target, text: receipts.append((target, text))
 
-    app._confirm_pending_resend("Test Account")
-    app._confirm_pending_resend("Test Account")
+    app._confirm_pending_resend("测试账号")
+    app._confirm_pending_resend("测试账号")
 
     assert len(started) == 1
     assert started[0].kwargs["target"] == app._run_pending_resend
     assert app.pending_resend["resending"] is True
-    assert receipts == [("Test Account", "这条消息正在后台重发处理中，请稍候")]
+    assert receipts == [("测试账号", "这条消息正在后台重发处理中，请稍候")]
 
 
 def test_resend_worker_failure_preserves_retry_for_explicit_confirmation():
     app = Application.__new__(Application)
-    app.config = {"command_password": "TEST_ONLY_SECRET_003"}
+    app.config = {"command_password": "test"}
     app.events = queue.Queue()
     app.bridge = SimpleNamespace(diagnose_wechat_window=lambda *_args, **_kwargs: {})
     app._short_error = lambda _exc, _diagnosis: "微信会话未能确认"
@@ -93,17 +93,17 @@ def test_resend_worker_failure_preserves_retry_for_explicit_confirmation():
 
     app._send_reply_messages = fail_send
     original_pending = {
-        "target_name": "Sample Contact",
+        "target_name": "李昊阳",
         "reply": "原始回复",
         "resending": True,
         "resend_operation_id": "op-1",
     }
     app.pending_resend = dict(original_pending)
 
-    app._run_pending_resend("Test Account", original_pending, "op-1")
+    app._run_pending_resend("测试账号", original_pending, "op-1")
     kind, _sender, result, _decision, detail = app.events.get_nowait()
     assert kind == "pending_resend_failed"
-    app._finish_pending_resend(kind, "Test Account", result, detail)
+    app._finish_pending_resend(kind, "测试账号", result, detail)
 
     assert app.pending_resend["reply"] == "尚未确认的部分"
     assert app.pending_resend["resending"] is False
@@ -115,7 +115,7 @@ def test_resend_worker_failure_preserves_retry_for_explicit_confirmation():
 
 def test_resend_worker_success_clears_only_the_matching_pending_item():
     app = Application.__new__(Application)
-    app.config = {"command_password": "TEST_ONLY_SECRET_003"}
+    app.config = {"command_password": "test"}
     app.events = queue.Queue()
     sent = []
     receipts = []
@@ -123,22 +123,22 @@ def test_resend_worker_success_clears_only_the_matching_pending_item():
     app._send_command_reply_async = lambda target, text: receipts.append((target, text))
     app._set_status = lambda _text: None
     pending = {
-        "target_name": "Sample Contact",
+        "target_name": "李昊阳",
         "reply": "候选回复",
         "resending": True,
         "resend_operation_id": "op-2",
     }
     app.pending_resend = dict(pending)
 
-    app._run_pending_resend("Test Account", pending, "op-2")
+    app._run_pending_resend("测试账号", pending, "op-2")
     kind, _sender, result, _decision, detail = app.events.get_nowait()
-    app._finish_pending_resend(kind, "Test Account", result, detail)
+    app._finish_pending_resend(kind, "测试账号", result, detail)
 
-    assert sent == [("Sample Contact", "候选回复")]
+    assert sent == [("李昊阳", "候选回复")]
     assert app.pending_resend is None
-    assert receipts == [("Test Account", "已重发给Sample Contact")]
+    assert receipts == [("测试账号", "已重发给李昊阳")]
 
 
 def test_resend_confirmation_contact_configured():
-    config = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
-    assert config["resend_confirmation_contact"] == ""
+    config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+    assert config["resend_confirmation_contact"] == "测试账号"

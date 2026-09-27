@@ -3218,7 +3218,7 @@ class MomentDB:
         for p, fsz, _ in files:
             data = self.decrypt_cache(p)
             w = h = 0
-            if data and data.startswith(b"\xff\xd8"):
+            if data and data.startswith(b"\test_account\xd8"):
                 try:
                     w, h = Image.open(io.BytesIO(data)).size
                 except Exception:
@@ -3296,7 +3296,7 @@ class MomentDB:
                     if not data:
                         continue
                     w = h = 0
-                    if data.startswith(b"\xff\xd8"):
+                    if data.startswith(b"\test_account\xd8"):
                         try:
                             w, h = Image.open(io.BytesIO(data)).size
                         except Exception:
@@ -3506,7 +3506,7 @@ class MomentDB:
                 return {"status": "cache-decrypt-failed", "path": None,
                         "reason": f"decrypt failed: {local}", "media": media}
             if md5:
-                if kind == "video" or not data.startswith(b"\xff\xd8"):
+                if kind == "video" or not data.startswith(b"\test_account\xd8"):
                     name = "%s.mp4" % md5
                 else:
                     name = "%s.jpg" % md5
@@ -3734,7 +3734,7 @@ class MomentDB:
         except OSError as e:
             return {"status": "error", "reason": f"mkdir group: {e}"}
 
-        fname = kstr + ("." + ("mp4" if not data.startswith(b"\xff\xd8") else "jpg"))
+        fname = kstr + ("." + ("mp4" if not data.startswith(b"\test_account\xd8") else "jpg"))
         out_path = os.path.join(group_dir, fname)
         try:
             with open(out_path, "wb") as fp:

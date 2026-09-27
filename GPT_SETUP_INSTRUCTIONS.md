@@ -23,7 +23,7 @@
    ```powershell
    py -3.12 -m venv .venv
    .\.venv\Scripts\python.exe -m pip install --upgrade pip
-   .\.venv\Scripts\python.exe -m pip install -e ".\third_party\wechatauto-replica[guia]"
+   .\.venv\Scripts\python.exe -m pip install -e "vendor/wechatauto-replica[guia]"
    ```
 
 4. 在编辑配置前备份 `config.json`。只在用户确认后，将 `db_dir` 和 `account` 更新为当前微信账号的有效本机数据位置；旧电脑的数据库路径不可直接照搬。不要移动、解密或覆盖微信数据库。

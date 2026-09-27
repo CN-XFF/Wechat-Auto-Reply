@@ -16,7 +16,7 @@ Run these commands from the repository root:
 py -3.12 -m venv .\distribution\build-env
 .\distribution\build-env\Scripts\python.exe -m pip install --upgrade pip
 .\distribution\build-env\Scripts\python.exe -m pip install -r .\distribution\requirements-build.lock.txt
-.\distribution\build-env\Scripts\python.exe -m pip install --no-deps .\third_party\wechatauto-replica
+.\distribution\build-env\Scripts\python.exe -m pip install --no-deps .\vendor\wechatauto-replica
 ```
 
 The lock file pins the Python build environment. The final command installs the vendored dependency as a regular package in that environment; the release script refreshes it from the checked-in source snapshot before building.

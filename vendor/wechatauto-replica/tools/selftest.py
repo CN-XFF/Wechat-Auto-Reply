@@ -235,7 +235,7 @@ def t_verify() -> None:
                 "sender_id": sender, "type": "文本"}
 
     class FakeDB:
-        uname = "wxid_example_015"
+        uname = "wxid_example_201"
 
         def __init__(self, rows):
             self.rows = sorted(rows, key=lambda r: -r["sort_seq"])

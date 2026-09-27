@@ -1170,7 +1170,7 @@ class WeChatDB:
         return (
             len(b) == 32
             and len(set(b)) >= 15
-            and b not in {b"\x00" * 32, b"\xff" * 32}
+            and b not in {b"\x00" * 32, b"\test_account" * 32}
         )
 
     @staticmethod
@@ -2546,7 +2546,7 @@ class WeChatDB:
 def list_accounts(db_dir: Optional[str] = None) -> List[dict]:
     """扫描数据目录下的所有微信账号目录。
 
-    返回: [{"account": "wxid_example_014", "wxid": "wxid_xxx",
+    返回: [{"account": "wxid_example_010", "wxid": "wxid_example_102",
             "path": ..., "last_activity": mtime, "self_nick": 昵称或空}]
     """
     db_dir = db_dir or auto_detect_db_dir()
@@ -2633,7 +2633,7 @@ class Listener:
     用法::
 
         listener = Listener(db, interval=1.0)
-        listener.add_listener("wxid_example_012", on_new_msg)
+        listener.add_listener("filehelper", on_new_msg)
         listener.start()
         ...
         listener.stop()

@@ -11,7 +11,7 @@ $version = $versionMatch.Groups[1].Value
 $buildEnv = Join-Path $distributionDir 'build-env'
 $python = Join-Path $buildEnv 'Scripts\python.exe'
 $pyinstaller = Join-Path $buildEnv 'Scripts\pyinstaller.exe'
-$vendorRoot = Join-Path $projectRoot 'third_party\wechatauto-replica'
+$vendorRoot = Join-Path $projectRoot 'vendor\wechatauto-replica'
 $outputRoot = Join-Path $distributionDir "output\$version"
 $appOutput = Join-Path $outputRoot 'WeChatAutoReply'
 $workRoot = Join-Path $distributionDir "build\$version"
@@ -97,6 +97,7 @@ New-Item -ItemType Directory -Path $docsDir,$vendorLicenseDir -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $distributionDir 'INSTALLATION_GUIDE.md') -Destination $docsDir
 Copy-Item -LiteralPath (Join-Path $distributionDir 'README.md') -Destination $docsDir
 Copy-Item -LiteralPath (Join-Path $projectRoot 'CODEX_AFTER_INSTALL_HANDOFF.md') -Destination $docsDir
+Copy-Item -LiteralPath (Join-Path $projectRoot 'CHANGELOG.md') -Destination $docsDir
 Copy-Item -LiteralPath (Join-Path $vendorRoot 'LICENSE') -Destination (Join-Path $vendorLicenseDir 'LICENSE')
 
 $sitePackages = Join-Path $buildEnv 'Lib\site-packages'

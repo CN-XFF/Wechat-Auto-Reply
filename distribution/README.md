@@ -1,13 +1,12 @@
-# 微信自动回复助手
+# 微信自动回复工具（通用配置包）
 
-Windows 桌面微信文字消息监听与自动回复工具。
+这是一个 Windows 微信文字消息监听与自动回复项目。压缩包不预设任何联系人：请先按迁移指南填写当前电脑上的微信数据路径和联系人设置。
 
-本目录包含 Windows 安装包构建脚本和安装说明。运行 `build_release.ps1` 会在 `output` 与 `release` 目录生成发行候选；它只使用 `config.example.json`，不会读取或打包项目根目录的真实 `config.json`、备份、聊天数据库、日志、缓存或 `.git`。
+默认配置为全局关闭、试运行开启、联系人列表为空、远程指令关闭。启动程序前先检查配置；在你明确准备真实发送前，不要关闭试运行。
 
-维护者构建环境和发布流程见 `BUILDING.md`；GitHub 发布前检查表见仓库根目录的 `GITHUB_PUBLISHING_CHECKLIST.md`。
+- `MIGRATION_GUIDE.md`：新电脑安装、配置、启动和停止步骤。
+- `GPT_SETUP_INSTRUCTIONS.md`：供 GPT/Codex 帮助配置本项目时遵循的范围与安全要求。
+- `OPTIONAL_SKILLS.md`：可选的微信聊天记录读取技能说明。
+- `optional-skills/get-wechat-history/SKILL.md`：技能说明副本；实际插件和 MCP 服务需另行安装、连接。
 
-安装包默认按当前 Windows 用户安装。首次启动会要求用户填写本机微信数据库位置和账号目录名；自动回复、试运行、远程指令和近期联系人读取均采用安全默认值。安装器不会自动启动微信或发送消息。发布前请阅读 `INSTALLATION_GUIDE.md` 并完成其中的版权、许可、隐私和独立机器运行检查。
-
-安装包还包含 `CODEX_AFTER_INSTALL_HANDOFF.md`，开始菜单提供打开该说明的入口。
-
-本发行候选的第三方组件 `wechatauto-replica` 使用 Apache License 2.0；许可证文本会随发行文件一同收集。安装器编译器 Inno Setup 自身不随本软件安装包分发。
+桌面自动化会受微信版本、窗口大小和系统显示设置影响；本工具不是微信官方自动回复功能。

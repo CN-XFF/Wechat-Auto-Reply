@@ -8,7 +8,7 @@ sys.path.insert(0, str(ROOT / "vendor" / "wechatauto-replica"))
 sys.path.insert(0, str(ROOT))
 
 from app import Application, split_reply_messages  # noqa: E402
-from wechat_reply.wechat_bridge import WeChatBridge  # noqa: E402
+from reply_core.wechat_bridge import WeChatBridge  # noqa: E402
 
 
 def test_reply_lines_are_separate_bubbles_and_capped_at_three():
@@ -30,8 +30,8 @@ def test_reply_parts_send_separately_in_order_and_keep_partial_retry_safe():
     app = Application.__new__(Application)
     app.send_lock = threading.Lock()
     app.bridge = Bridge()
-    app._send_reply_messages("Contact A", "先说一句\n再补一句", lambda: "")
-    assert sent == [("Contact A", "先说一句"), ("Contact A", "再补一句")]
+    app._send_reply_messages("联系人示例", "先说一句\n再补一句", lambda: "")
+    assert sent == [("联系人示例", "先说一句"), ("联系人示例", "再补一句")]
 
     class FailingBridge:
         def __init__(self):
@@ -45,7 +45,7 @@ def test_reply_parts_send_separately_in_order_and_keep_partial_retry_safe():
     failing = FailingBridge()
     app.bridge = failing
     try:
-        app._send_reply_messages("Contact A", "第一句\n第二句\n第三句")
+        app._send_reply_messages("联系人示例", "第一句\n第二句\n第三句")
     except RuntimeError as exc:
         assert exc.remaining_reply_text == "第二句\n第三句"
         assert exc.sent_reply_parts == ("第一句",)
@@ -55,7 +55,7 @@ def test_reply_parts_send_separately_in_order_and_keep_partial_retry_safe():
 
 def test_recent_context_marks_both_self_sender_ids_as_user_messages():
     bridge = WeChatBridge.__new__(WeChatBridge)
-    bridge.targets = {"Contact A": "contact-id"}
+    bridge.targets = {"联系人示例": "contact-id"}
     bridge.db = SimpleNamespace(
         get_messages=lambda _username, limit: [
             {"type": "文本", "sender_id": 0, "content": "对方的新话"},
@@ -64,13 +64,13 @@ def test_recent_context_marks_both_self_sender_ids_as_user_messages():
         ]
     )
 
-    assert bridge.recent_context("Contact A", 6, 1200) == (
-        "我: 我先说的话\n我: 我后来补充\nContact A: 对方的新话"
+    assert bridge.recent_context("联系人示例", 6, 1200) == (
+        "我: 我先说的话\n我: 我后来补充\n联系人示例: 对方的新话"
     )
 
 
 def test_prompt_uses_prior_user_messages_for_style_and_allows_optional_bubbles():
-    source = (ROOT / "wechat_reply" / "engine.py").read_text(encoding="utf-8")
+    source = (ROOT / "reply_core" / "engine.py").read_text(encoding="utf-8")
     assert "必须结合上下文理解指代、前后话题和已经回答过的内容" in source
     assert "上下文里“我:”的实际用词" in source
     assert "最多三条短消息" in source

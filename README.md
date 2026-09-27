@@ -1,48 +1,36 @@
 # 微信自动回复助手
 
-适用于 Windows 桌面微信的文字消息监听与回复工具。可按本机配置监听指定会话，并通过本机 Codex CLI 生成回复。它不是微信官方功能。
+面向 Windows 桌面微信的文字消息监听与自动回复工具。程序可按本机配置监听指定会话，并通过本地 Codex CLI 生成回复；敏感或高风险内容可要求人工确认。
 
-> 本项目仍处于测试发行阶段。微信界面、系统缩放或窗口状态变化可能影响定位和发送；真实发送存在误发和账号风控风险。
+本项目是社区工具，不是微信官方功能。桌面自动化会受微信版本、窗口状态和系统显示设置影响，使用者应先在试运行模式下检查行为，再自行决定是否启用真实发送。
 
-## 使用安装包
+## 功能与默认安全设置
 
-从 GitHub Releases 下载 Windows 安装程序并按向导安装。首次启动会要求选择微信数据库根目录并填写账号文件夹名称；首次设置不会自动启用自动回复、远程指令或近期联系人读取。
+- 支持按本机配置选择监听对象、回复规则和确认流程。
+- 默认全局自动回复关闭、试运行开启、联系人列表为空，远程指令关闭。
+- AI 回复通过本机 Codex CLI 运行；安装包不包含账号凭据或 API 密钥。
+- 配置、日志和运行状态保存在本机。请勿把 `config.json`、微信数据库、日志或令牌提交到公开仓库。
 
-运行 AI 回复还需要本机已安装并由使用者登录的 Codex CLI。软件运行不需要 Codex 插件或 OpenAI API Key。安装程序不会替使用者登录微信或 Codex。
+## 安装
 
-## 从源码运行
+1. 从 GitHub Releases 下载 Windows x64 安装程序并运行。
+2. 安装并登录本机微信；程序不会替你登录或迁移微信数据。
+3. 如需 AI 回复，另行安装并登录 Codex CLI。
+4. 首次配置时选择当前电脑上的微信数据位置。先保持真实发送关闭，核对配置后再决定是否启用。
 
-要求 Windows 10/11、64 位 Python 3.12 和 Windows 微信客户端。AI 回复需要另行准备已登录的 Codex CLI。
+## 从源码构建
 
-在仓库根目录打开 PowerShell：
-
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".\third_party\wechatauto-replica[guia]"
-```
-
-运行 `python app.py` 后按首次设置窗口填写本机数据库根目录和账号文件夹名称。源码模式也可先将 `config.example.json` 复制为 `config.json`；示例配置中的路径和账号是占位值。
-
-初次检查保持 `enabled=false`、`dry_run=true`、联系人列表为空。`scripts\start_auto_reply.ps1` 会开启全局运行开关；运行前先逐项核对路径、联系人和发送设置。只有你明确决定启用真实发送后，才更改试运行状态。
-
-停止脚本：
+需要 Windows x64、Python 3.12 和 Inno Setup 7。准备构建环境后，在项目根目录运行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop_auto_reply.ps1
+py -3.12 -m venv .\distribution\build-env
+.\distribution\build-env\Scripts\python.exe -m pip install -r .\distribution\requirements-build.lock.txt
+.\distribution\build-env\Scripts\python.exe -m pip install --no-deps .\vendor\wechatauto-replica
+powershell -NoProfile -ExecutionPolicy Bypass -File .\distribution\build_release.ps1
 ```
 
-## 构建 Windows 安装包
+更多说明见 [`distribution/BUILDING.md`](distribution/BUILDING.md)、[`distribution/INSTALLATION_GUIDE.md`](distribution/INSTALLATION_GUIDE.md) 和 [`CHANGELOG.md`](CHANGELOG.md)。
 
-维护者可按 [安装包构建说明](distribution/BUILDING.md) 准备隔离的构建环境并生成安装程序。构建输出和安装程序被 `.gitignore` 排除；发布时应将安装程序作为 GitHub Release 附件，而不是提交到源码仓库。
+## 第三方组件与许可
 
-## 隐私与安全
-
-- 本机 `config.json` 可能含账号路径、联系人标识、风格内容或指令密码；不要提交、分享或放进安装包。
-- 程序从本机微信数据目录读取会话数据。启用 AI 回复时，相关消息和配置的上下文会交给本机 Codex CLI 使用的模型处理；请先确认自己接受其数据处理范围。
-- 不要将微信数据库、聊天记录、日志、导出内容、密钥或备份加入公开仓库。`.gitignore` 已排除常见本机数据和构建目录，但公开前仍需人工检查 Git 暂存内容。
-- `third_party/wechatauto-replica` 是单独许可的第三方依赖，其 Apache-2.0 许可文本随源码保留。
-
-## 许可证
-
-本项目自身尚未声明开源许可证。公开前请由项目所有者选择并添加许可证；第三方依赖的许可证不自动适用于本项目。
+`vendor/wechatauto-replica` 保留其上游许可文件。主程序自身的再分发许可尚未单独声明；第三方组件的许可不等同于主程序许可。

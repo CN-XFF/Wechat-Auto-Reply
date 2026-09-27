@@ -17,7 +17,7 @@ def make_app(wait_seconds=1.0):
     app = Application.__new__(Application)
     app.config = {
         "enabled": True,
-        "targets": [{"name": "Test Account", "auto_reply_enabled": True, "wait_seconds": wait_seconds}],
+        "targets": [{"name": "测试账号", "auto_reply_enabled": True, "wait_seconds": wait_seconds}],
     }
     app.events = queue.Queue()
     app.pending_batches = {}
@@ -41,20 +41,20 @@ def test_new_message_resets_debounce_and_merges_same_recipient(monkeypatch):
     app = make_app(wait_seconds=2.0)
     times = iter((100.0, 100.01))
     monkeypatch.setattr(app_module.time, "monotonic", lambda: next(times))
-    app.on_message("Test Account", incoming(1, "第一句"), None)
-    batch = app.pending_batches["Test Account"]
+    app.on_message("测试账号", incoming(1, "第一句"), None)
+    batch = app.pending_batches["测试账号"]
     first_deadline = batch["deadline"]
 
-    app.on_message("Test Account", incoming(2, "第二句"), None)
+    app.on_message("测试账号", incoming(2, "第二句"), None)
 
-    assert app.pending_batches["Test Account"] is batch
+    assert app.pending_batches["测试账号"] is batch
     assert batch["deadline"] > first_deadline
     assert [text for _, text in batch["items"]] == ["第一句", "第二句"]
 
 
 def test_message_during_inflight_reply_becomes_serial_followup_task():
     app = make_app(wait_seconds=0.0)
-    app.pending_batches["Test Account"] = {
+    app.pending_batches["测试账号"] = {
         "items": [(incoming(1, "第一批"), "第一批")],
         "cursor": (10, 10),
         "deadline": time.monotonic() - 1,
@@ -82,10 +82,10 @@ def test_message_during_inflight_reply_becomes_serial_followup_task():
     worker.start()
     assert first_started.wait(timeout=3)
 
-    app.on_message("Test Account", incoming(2, "第二批"), None)
-    followup = app.pending_batches["Test Account"]
+    app.on_message("测试账号", incoming(2, "第二批"), None)
+    followup = app.pending_batches["测试账号"]
     assert len(followup["items"]) == 1
-    assert "Test Account" in app.inflight_targets
+    assert "测试账号" in app.inflight_targets
 
     allow_first_to_finish.set()
     assert second_started.wait(timeout=3)
@@ -103,7 +103,7 @@ def test_already_answered_messages_are_removed_from_batch():
     app._user_replied_after_incoming = lambda _target, msg: msg["sort_seq"] == 1
     items = [(incoming(1, "我已经回过"), "我已经回过"), (incoming(2, "新问题"), "新问题")]
 
-    remaining = app._filter_answered_messages("Test Account", items)
+    remaining = app._filter_answered_messages("测试账号", items)
 
     assert [text for _, text in remaining] == ["新问题"]
     event = app.events.get_nowait()

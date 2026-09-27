@@ -9,14 +9,14 @@
 用法：
     python -m wechatauto.demo_forward --list                    # 列出本机所有账号，不启动监听
     python -m wechatauto.demo_forward                            # 最近活跃账号，监听 文件传输助手
-    python -m wechatauto.demo_forward --account wxid_xxx --from 群名 --to 中转站
+    python -m wechatauto.demo_forward --account wxid_example_102 --from 群名 --to 中转站
     python -m wechatauto.demo_forward --from 兔仔仔 --to 文件传输助手 --dry-run
-    python -m wechatauto.demo_forward --from 我的群 --to 测试账号 --verify --interval 2
+    python -m wechatauto.demo_forward --from 我的群 --to 小号 --verify --interval 2
 
 参数：
     --list            只列出本机可用的微信账号，不启动监听
-    --account         监听哪个账号（``list_accounts`` 的 account，wxid_xxx 或
-                      完整目录名 wxid_example_014 均可）；缺省选最近活跃的账号
+    --account         监听哪个账号（``list_accounts`` 的 account，wxid_example_102 或
+                      完整目录名 wxid_example_010 均可）；缺省选最近活跃的账号
     --from            被转发的来源聊天对象（昵称/备注/群名/username），默认 文件传输助手
     --to              转发目标联系人（昵称/备注/username），默认 文件传输助手
     --interval        轮询间隔秒数，默认 1.0
@@ -158,7 +158,7 @@ def build_gui(hwnd: int = None) -> WeChatGUI:
 
 
 def resolve_account(raw: str, accounts: list) -> str:
-    """把用户输入（wxid_xxx 或完整目录名）解析为账号目录名。"""
+    """把用户输入（wxid_example_102 或完整目录名）解析为账号目录名。"""
     if not raw:
         return accounts[0]["account"]
     for a in accounts:
@@ -170,8 +170,8 @@ def resolve_account(raw: str, accounts: list) -> str:
 
 def resolve_chat_username(db: WeChatDB, raw: str) -> str:
     """把输入（username / 昵称 / 备注 / 群名）解析成监听用的会话 username。"""
-    if raw in ("wxid_example_012", "文件传输助手"):
-        return "wxid_example_012"
+    if raw in ("filehelper", "文件传输助手"):
+        return "filehelper"
     hits = db.search_contact(raw)
     if hits:
         return hits[0]["username"]
@@ -187,8 +187,8 @@ def resolve_target(db: WeChatDB, raw: str):
     GUI 按显示名（备注 > 昵称）在会话列表里 OCR 检索，username 留给
     ``verify=True`` 时的数据库读回确认。
     """
-    if raw in ("wxid_example_012", "文件传输助手"):
-        return "文件传输助手", "wxid_example_012"
+    if raw in ("filehelper", "文件传输助手"):
+        return "文件传输助手", "filehelper"
     hits = db.search_contact(raw)
     if hits:
         h = hits[0]

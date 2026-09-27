@@ -98,7 +98,7 @@ print(wechatauto.__version__)   # 1.1.5.1 (beta)
 from wechatauto import WeChatDB
 
 db = WeChatDB()          # 自动检测账号与数据目录 / auto-detect account & data dir
-# db = WeChatDB(account="wxid_xxx")   # 多账号时指定 / specify account for multi-account
+# db = WeChatDB(account="wxid_example_102")   # 多账号时指定 / specify account for multi-account
 ```
 
 ### 3.2 会话（聊天列表）/ Sessions (chat list)
@@ -111,7 +111,7 @@ for s in db.get_sessions(limit=10):        # 会话列表 / session list
 
 `get_sessions()` 返回的 `username` 是**会话唯一标识** / unique session identifier：
 
-- 私聊 / Private chat：`wxid_xxx`
+- 私聊 / Private chat：`wxid_example_102`
 - 群聊 / Group chat：`xxx@chatroom`
 
 > ⚠️ 后续所有 API 都认 `username` 而非昵称。可用 `search_contact()` 转换。
@@ -121,21 +121,21 @@ for s in db.get_sessions(limit=10):        # 会话列表 / session list
 
 ```python
 hits = db.search_contact("Ayi")            # 按昵称/备注/微信号模糊搜索 / fuzzy search
-print(hits[0]["username"])                 # -> wxid_xxx 或 xxx@chatroom
+print(hits[0]["username"])                 # -> wxid_example_102 或 xxx@chatroom
 
-nick = db.get_nickname("wxid_xxx")         # 反查昵称 / reverse lookup nickname
+nick = db.get_nickname("wxid_example_102")         # 反查昵称 / reverse lookup nickname
 ```
 
 ### 3.4 读取消息 / Read messages
 
 ```python
 # 最近 N 条（按 sort_seq 降序）/ latest N (sort_seq desc)
-msgs = db.get_messages("wxid_example_012", limit=10)
+msgs = db.get_messages("filehelper", limit=10)
 for m in msgs:
     print(m["local_id"], m["type"], m["sender_id"], m["content"], m["create_time"])
 
 # 单条原始行（媒体下载用，含 server_id / packed_info）/ single raw row
-row = db.get_message_row("wxid_example_012", 123)
+row = db.get_message_row("filehelper", 123)
 ```
 
 消息 dict 字段 / Message dict fields：
@@ -152,7 +152,7 @@ row = db.get_message_row("wxid_example_012", 123)
 ### 3.5 增量消息（供轮询监听）/ Incremental messages
 
 ```python
-new = db.get_new_messages("wxid_example_012", since_seq=12345, limit=200)
+new = db.get_new_messages("filehelper", since_seq=12345, limit=200)
 ```
 
 ### 3.6 按类型批量取媒体 ID / Batch media IDs
@@ -184,7 +184,7 @@ def on_msg(msg, lst):
     print(f"[{msg['type']}] {msg['sender_id']}: {msg['content']}")
     # 可在此扩展业务：关键词回复、媒体下载、通知推送等 / extend here
 
-lst.add_listener("wxid_example_012", on_msg)    # 参数是会话 username
+lst.add_listener("filehelper", on_msg)    # 参数是会话 username
 lst.start()                               # 启动（后台线程）/ background thread
 # ... 你的主程序逻辑 / your main logic ...
 lst.stop()                                # 停止 / stop
@@ -196,7 +196,7 @@ lst.stop()                                # 停止 / stop
 - 每个会话一条独立工作线程：**同会话保序、跨会话并行** / per-chat worker: in-order per chat, parallel across chats
 - 慢回调（AI 调用、图片识别）不影响整体监听 / slow callbacks don't affect polling
 
-**监听无聊天记录的联系人 / Contact with no history**：消息表按需创建，对方发第一条消息后下次轮询即可捕获，只需 `add_listener("wxid_xxx", cb)`。
+**监听无聊天记录的联系人 / Contact with no history**：消息表按需创建，对方发第一条消息后下次轮询即可捕获，只需 `add_listener("wxid_example_102", cb)`。
 
 **watermark 持久化 / Watermark persistence**：监听器记录已消费的 `sort_seq`，下次启动可传入避免重复推送。
 
@@ -243,7 +243,7 @@ wc.GetListenMessage()        # 阻塞监听循环（Ctrl+C 退出）/ blocking l
 
 ```python
 wc.GetSession()            # 会话列表 / session list [SessionItem]
-wc.ChatWith("wxid_example_012")  # 切换当前会话 / switch current chat
+wc.ChatWith("filehelper")  # 切换当前会话 / switch current chat
 wc.GetAllSubWindow()       # 所有会话窗口 / all chat windows
 ```
 
@@ -258,10 +258,10 @@ from wechatauto.guia import (
     quick_send, quick_send_file, quick_send_image, quick_reply,
 )
 
-quick_send("你好", "wxid_example_012", verify=True)          # 文本，verify=True 从库回读确认
-quick_send_file(r"D:\report.pdf", "wxid_example_012")         # 文件 / file
-quick_send_image(r"D:\photo.png", "wxid_example_012")         # 图片 / image
-quick_reply("回复内容", "wxid_example_012", 123)              # 回复某条消息 / reply
+quick_send("你好", "filehelper", verify=True)          # 文本，verify=True 从库回读确认
+quick_send_file(r"D:\report.pdf", "filehelper")         # 文件 / file
+quick_send_image(r"D:\photo.png", "filehelper")         # 图片 / image
+quick_reply("回复内容", "filehelper", 123)              # 回复某条消息 / reply
 ```
 
 ### 5.2 WeChat / Chat 对象（wxauto 风格 / wxauto-style）
@@ -270,7 +270,7 @@ quick_reply("回复内容", "wxid_example_012", 123)              # 回复某条
 from wechatauto import WeChat
 
 wc = WeChat()
-chat = wc.ChatWith("wxid_example_012")          # 或 / or Chat("wxid_example_012", wc._gui, wc._db)
+chat = wc.ChatWith("filehelper")          # 或 / or Chat("filehelper", wc._gui, wc._db)
 
 resp = chat.SendMsg("你好")                # 发送到当前会话 / send to current chat
 resp = chat.SendMsg("大家好", "群名", at=["@张三", "@李四"])  # 群聊 @ 成员 / group @members
@@ -369,15 +369,15 @@ md.detect_image_key()          # 扫描进程内存提取密钥（首次需要�
 
 ```python
 # 按类型自动分发（3图片 34语音 43视频 49文件）/ auto-dispatch by type
-out = md.download_media("wxid_example_012", 123, save_dir=r"D:\media")
+out = md.download_media("filehelper", 123, save_dir=r"D:\media")
 
-out = md.download_image("wxid_example_012", 123)      # jpg/png/gif
-out = md.download_voice("wxid_example_012", 123)      # .silk
-out = md.download_video("wxid_example_012", 123)      # .mp4
-out = md.download_file("wxid_example_012", 123)       # 原文件 / original file
+out = md.download_image("filehelper", 123)      # jpg/png/gif
+out = md.download_voice("filehelper", 123)      # .silk
+out = md.download_video("filehelper", 123)      # .mp4
+out = md.download_file("filehelper", 123)       # 原文件 / original file
 
 # 下载原图（通过UI点击触发微信下载）/ download original image (UI click triggers download)
-out = md.download_image_original("wxid_example_012", 123, timeout=30)
+out = md.download_image_original("filehelper", 123, timeout=30)
 ```
 
 返回落盘路径，失败返回 `None`。 / Returns the saved path, or `None` on failure.
@@ -463,7 +463,7 @@ accts = list_accounts()                       # 列出本机所有微信账号 /
 for a in accts:
     print(a)
 
-db = WeChatDB(account="wxid_xxx")             # 指定账号 / pick an account
+db = WeChatDB(account="wxid_example_102")             # 指定账号 / pick an account
 ```
 
 ---

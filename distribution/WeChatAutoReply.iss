@@ -20,7 +20,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#AppName}
-VersionInfoVersion=0.1.0.0
+VersionInfoVersion=1.0.6.0
 VersionInfoProductName={#AppName}
 VersionInfoDescription=Windows WeChat text auto-reply assistant
 

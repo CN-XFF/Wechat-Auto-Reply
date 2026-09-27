@@ -1,4 +1,4 @@
-from wechat_reply.risk import detect_risks
+from reply_core.risk import detect_risks
 
 
 def test_normal_chat_has_no_risk():

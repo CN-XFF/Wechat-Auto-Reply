@@ -96,6 +96,7 @@ VK_ESCAPE = 0x1B
 VK_DELETE = 0x2E
 VK_A = 0x41
 VK_C = 0x43
+VK_F = 0x46
 VK_V = 0x56
 
 
@@ -178,7 +179,7 @@ def _log_swallowed(where: str, e: BaseException) -> None:
 PORTRAIT_MIN_HW = 1.2            # 高/宽 ≥ 此值 → 视为竖屏（手机式）布局
 PORTRAIT_SIDEBAR_RATIO = 1.0     # 竖屏下「侧栏」= 整窗宽（单列）
 MIN_WINDOW_PORTRAIT = 600        # 竖屏主窗口的最小高度（像素）
-# 会话列表名字列最小 x（相对侧栏宽）。备注文字可能左移到约 11%（短名称样例）；
+# 会话列表名字列最小 x（相对侧栏宽）。备注文字可能左移到约 11%（小号截图）；
 # 过滤最左侧 8% 可排除头像 OCR 噪声（约 5%），同时保留左移后的联系人名。
 # 候选仍必须通过严格名称匹配，位置本身不会触发点击。
 NAME_COL_MIN_RATIO = 0.08
@@ -749,6 +750,7 @@ class WeChatGUI:
         self._send_button_ratio = SEND_BUTTON_RATIO
         self.layout_profile = 'wide'      # 由 _update_layout() 按窗口比例刷新
         self.main_hwnd = hwnd or self._find_main_window(title)
+        self._primary_hwnd = self.main_hwnd
         if not self.main_hwnd:
             raise RuntimeError('未找到微信主窗口，请确认微信已登录并运行')
         # 微信“最小化到托盘”时主窗口仍可能存在，但不可见。先显式恢复，
@@ -1924,7 +1926,7 @@ class WeChatGUI:
     def get_sessions(self, zoomed: bool = False) -> List[Dict[str, object]]:
         """OCR 识别会话列表（渲染相对坐标），返回 [{name, x, y, w, h}]。
 
-        名字列通常从侧栏左侧 8% 之后开始；短名称联系人的 OCR 可左移到约 11%，
+        名字列通常从侧栏左侧 8% 之后开始；小号的名字 OCR 可左移到约 11%，
         因此只过滤最左侧头像/角标区，跨分辨率/档位一致（竖屏档下“侧栏”=
         整窗宽，阈值同以此为基准）。
 
@@ -1983,10 +1985,10 @@ class WeChatGUI:
 
         The title matcher intentionally tolerates fragments because WeChat's
         title OCR often truncates characters.  That tolerance is unsafe for a
-        clickable row: a two-character target such as ``测试`` would otherwise
-        also match web-result text like ``测试微信怎么申请``.  Row selection is
+        clickable row: a two-character target such as ``小号`` would otherwise
+        also match web-result text like ``小号微信怎么申请``.  Row selection is
         therefore exact-first, allowing at most one leading/trailing OCR
-        artifact (for example ``0测试``) for short names.
+        artifact (for example ``0小号``) for short names.
         """
         a = WeChatGUI._normalize_contact_text(ocr_name)
         b = WeChatGUI._normalize_contact_text(target)
@@ -2125,7 +2127,7 @@ class WeChatGUI:
             WinRT OCR 对生僻字/小字号存在抖动：同一行
             不同轮次可能漏识或误识成形近字。最多扫描 rounds 轮；
             一旦同一行达到 min_votes 即提前返回，稳定时不增加延迟，
-            抖动时再补扫，避免短名称联系人偶发漏一帧就直接退到搜索。
+            抖动时再补扫，避免“小号”偶发漏一帧就直接退到搜索。
             """
             hits = []  # (y, x, w, h)
 
@@ -2339,6 +2341,44 @@ class WeChatGUI:
                 return True
         return False
 
+    def search_chat_only(self, name: str) -> bool:
+        """只通过顶部联系人搜索框打开并确认会话，不扫描或滚动聊天列表。"""
+        primary_hwnd = int(getattr(self, '_primary_hwnd', 0) or 0)
+        if primary_hwnd and primary_hwnd != int(getattr(self, 'main_hwnd', 0) or 0):
+            if not self.use_window(primary_hwnd):
+                wxlog.warning('联系人搜索测试无法切回微信主窗口：target=%r', name)
+                return False
+        if not self.ensure_visible():
+            wxlog.warning('无法显示微信主窗口，取消搜索框联系人定位：target=%r', name)
+            return False
+        self._update_render_rect()
+        wxlog.info(
+            '联系人搜索测试：不扫描聊天列表，使用 Ctrl+F 搜索并按 Enter 选择首项 target=%r',
+            name,
+        )
+        if not self._search_chat(name, use_ctrl_f=True):
+            return False
+
+        sub = self._find_chat_window(name)
+        if sub:
+            _restore_keep_maximize(self._input._user32, sub)
+            self._input._user32.SetForegroundWindow(sub)
+            time.sleep(0.5)
+            if not self.use_window(sub):
+                wxlog.warning('联系人搜索结果窗口无法切换：target=%r', name)
+                return False
+            if self._chat_open_confirmed(name):
+                self._current_chat = name
+                return True
+            wxlog.warning('搜索结果已打开但标题无法确认：target=%r', name)
+            return False
+
+        if self._chat_open_confirmed(name):
+            self._current_chat = name
+            return True
+        wxlog.warning('搜索后未能精确确认联系人会话：target=%r', name)
+        return False
+
     def _chat_open_confirmed(self, name: str) -> bool:
         """点击会话后轮询确认已打开。
 
@@ -2505,8 +2545,12 @@ class WeChatGUI:
         wxlog.warning('搜索框区域 OCR 未确认是联系人搜索输入框，取消点击：target=%r', target)
         return None
 
-    def _search_chat(self, name: str) -> bool:
-        """退路：搜索框 + 剪贴板粘贴搜索，点选名称匹配的第一条联系人。
+    def _search_chat(self, name: str, *, use_ctrl_f: bool = False) -> bool:
+        """搜索框 + 剪贴板粘贴搜索，并打开匹配的联系人会话。
+
+        ``use_ctrl_f`` 供“搜索查找测试”使用：微信主窗口已切到前台后，
+        通过 Ctrl+F 聚焦搜索框并按 Enter 选择首项，避免依赖 OCR 识别
+        搜索下拉文字或结果行坐标；调用方仍必须精确确认打开后的会话标题。
 
         搜索下拉结果排布：联系人在最上方，下面是「搜索网络结果 / 搜一搜」
         等节标题。OCR 结果按 y 排序后，跳过节标题/提示行，点选视觉上
@@ -2516,36 +2560,54 @@ class WeChatGUI:
         排除会误点群聊而非联系人。群聊节标题「群聊」以下的行优先排除，
         含「包含」的成员预览行直接跳过。
         """
-        for attempt in range(3):
-            # 窗口位置/DPI 可能在联系人列表扫描期间变化。重读渲染区域并
-            # 重试 OCR 锚点；只有识别到搜索框本身后才点击，绝不退化为盲点。
+        # Ctrl+F 只触发一次，避免无结果时再次按快捷键反而关闭搜索框。
+        for attempt in range(1 if use_ctrl_f else 3):
+            # 窗口位置/DPI 可能在联系人列表扫描期间变化，先重读渲染区域。
             refresh_rect = getattr(self, '_update_render_rect', None)
             if callable(refresh_rect) and getattr(self, 'render_hwnd', None):
                 refresh_rect()
-            point = self._search_field_click_point(name)
-            if not point:
-                if attempt < 2:
-                    wxlog.info(
-                        '联系人搜索框 OCR 锚点未确认，刷新坐标后重试 %s/2：target=%r',
-                        attempt + 1, name,
+            if use_ctrl_f:
+                wxlog.info('联系人搜索测试：通过 Ctrl+F 聚焦微信搜索框 target=%r', name)
+                self._input.key(VK_F, ctrl=True)
+                time.sleep(0.3)
+            else:
+                point = self._search_field_click_point(name)
+                if not point:
+                    if attempt < 2:
+                        wxlog.info(
+                            '联系人搜索框 OCR 锚点未确认，刷新坐标后重试 %s/2：target=%r',
+                            attempt + 1, name,
+                        )
+                        time.sleep(0.2)
+                        continue
+                    wxlog.warning(
+                        '联系人搜索框 OCR 锚点重试后仍未确认，取消搜索：target=%r', name
                     )
-                    time.sleep(0.2)
-                    continue
-                wxlog.warning('联系人搜索框 OCR 锚点重试后仍未确认，取消搜索：target=%r', name)
-                return False
-            cx, cy = self.origin_x + point[0], self.origin_y + point[1]
-            self.wx_click(cx, cy)
-            time.sleep(0.3)
+                    return False
+                cx, cy = self.origin_x + point[0], self.origin_y + point[1]
+                self.wx_click(cx, cy)
+                time.sleep(0.3)
             self._input.key(VK_A, ctrl=True)
-            self._input.key(VK_DELETE)
+            # Ctrl+F 流程中若快捷键未能聚焦搜索框，避免发送 Delete 误操作；
+            # Ctrl+A 后直接粘贴最多只会形成草稿，下面会校验并清理误入输入框的文本。
+            if not use_ctrl_f:
+                self._input.key(VK_DELETE)
             self.set_clipboard(name)
             self._input.key(VK_V, ctrl=True)
             time.sleep(0.8)
             if self._typed_into_chat_input(name):
                 return False
+            if use_ctrl_f:
+                # Ctrl+F 后直接用 Enter 选择搜索首项，避免搜索下拉文字 OCR
+                # 漏识导致流程中断。误入聊天输入框会在上面的草稿检查中拦截；
+                # 打开后仍必须由 search_chat_only 精确确认会话标题才能继续。
+                wxlog.info('搜索词已粘贴，按 Enter 选择首项，随后校验会话身份 target=%r', name)
+                self._input.key(VK_RETURN)
+                time.sleep(0.8)
+                return True
             if not self._search_query_visible(name):
                 wxlog.warning(
-                    '搜索框未确认收到联系人名 %r，取消搜索结果点击以免误入网络搜索或聊天草稿',
+                    '搜索框 OCR 未确认目标 %r，停止操作以免误入网络搜索或聊天草稿',
                     name,
                 )
                 return False
@@ -2590,8 +2652,8 @@ class WeChatGUI:
                         {'name': tt, 'x': x, 'y': y, 'w': w, 'h': h}):
                     matches.append((score, tt, x, y, w, h))
             if matches:
-                # 优先严格度最高的联系人行；短名称的 ``0测试`` 可作为单个 OCR
-                # 前缀伪影通过，但“测试微信怎么申请”一类网页结果不会进入候选。
+                # 优先严格度最高的联系人行；小号的 ``0小号`` 可作为单个 OCR
+                # 前缀伪影通过，但“小号微信怎么申请”一类网页结果不会进入候选。
                 best_score = max(row[0] for row in matches)
                 candidates = [row for row in matches if row[0] == best_score]
                 by_row = []

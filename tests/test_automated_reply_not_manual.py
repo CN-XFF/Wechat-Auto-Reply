@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT / "vendor" / "wechatauto-replica"))
 sys.path.insert(0, str(ROOT))
 
 from app import Application  # noqa: E402
-from wechat_reply.wechat_bridge import WeChatBridge  # noqa: E402
+from reply_core.wechat_bridge import WeChatBridge  # noqa: E402
 
 
 def test_previous_automated_reply_does_not_cancel_second_queued_message():
@@ -25,13 +25,13 @@ def test_previous_automated_reply_does_not_cancel_second_queued_message():
     ]
     bridge = WeChatBridge.__new__(WeChatBridge)
     bridge.db = SimpleNamespace(get_messages=lambda _username, limit: rows[:limit])
-    bridge.targets = {"Test Account": "wxid_example_002"}
+    bridge.targets = {"测试账号": "wxid_example_009"}
     bridge._automated_sent_lock = threading.Lock()
     bridge._automated_sent_ids = {}
     bridge._automated_sent_id_limit = 5000
 
     # Incoming message #2 (seq 14) is followed by the application's reply to #1 (seq 15).
-    assert bridge._verify_sent_db("wxid_example_002", "第一条自动回复", before={(14, 140)})
+    assert bridge._verify_sent_db("wxid_example_009", "第一条自动回复", before={(14, 140)})
 
     app = Application.__new__(Application)
     app.config = {"cancel_if_user_replied": True}
@@ -39,7 +39,7 @@ def test_previous_automated_reply_does_not_cancel_second_queued_message():
     app.events = queue.Queue()
     second_msg = {"sort_seq": 14, "content": "第二条消息"}
 
-    remaining = app._filter_answered_messages("Test Account", [(second_msg, "第二条消息")])
+    remaining = app._filter_answered_messages("测试账号", [(second_msg, "第二条消息")])
 
     assert remaining == [(second_msg, "第二条消息")]
     assert app.events.empty()
@@ -64,11 +64,11 @@ def test_manual_reply_after_second_message_still_cancels_it():
     ]
     bridge = WeChatBridge.__new__(WeChatBridge)
     bridge.db = SimpleNamespace(get_messages=lambda _username, limit: rows[:limit])
-    bridge.targets = {"Test Account": "wxid_example_002"}
+    bridge.targets = {"测试账号": "wxid_example_009"}
     bridge._automated_sent_lock = threading.Lock()
     bridge._automated_sent_ids = {}
     bridge._automated_sent_id_limit = 5000
-    bridge._remember_automated_sent("wxid_example_002", (15, 150))
+    bridge._remember_automated_sent("wxid_example_009", (15, 150))
 
     app = Application.__new__(Application)
     app.config = {"cancel_if_user_replied": True}
@@ -76,7 +76,7 @@ def test_manual_reply_after_second_message_still_cancels_it():
     app.events = queue.Queue()
     second_msg = {"sort_seq": 14, "content": "第二条消息"}
 
-    remaining = app._filter_answered_messages("Test Account", [(second_msg, "第二条消息")])
+    remaining = app._filter_answered_messages("测试账号", [(second_msg, "第二条消息")])
 
     assert remaining == []
     event = app.events.get_nowait()
@@ -86,7 +86,7 @@ def test_manual_reply_after_second_message_still_cancels_it():
 
 def test_manual_voice_reply_cancels_only_the_matching_contact():
     messages_by_username = {
-        "wxid_example_003": [
+        "wxid_example_005": [
             {
                 "sort_seq": 15,
                 "local_id": 150,
@@ -95,7 +95,7 @@ def test_manual_voice_reply_cancels_only_the_matching_contact():
                 "content": "[语音]",
             }
         ],
-        "wxid_example_004": [],
+        "wxid_example_101": [],
     }
     queried = []
     bridge = WeChatBridge.__new__(WeChatBridge)
@@ -104,11 +104,11 @@ def test_manual_voice_reply_cancels_only_the_matching_contact():
             queried.append(username) or messages_by_username[username][:limit]
         )
     )
-    bridge.targets = {"Contact A": "wxid_example_003", "Test Account": "wxid_example_004"}
+    bridge.targets = {"联系人示例": "wxid_example_005", "测试账号": "wxid_example_101"}
     bridge._automated_sent_lock = threading.Lock()
     bridge._automated_sent_ids = {}
     bridge._automated_sent_id_limit = 5000
 
-    assert bridge.has_self_reply_after("Contact A", 14) is True
-    assert bridge.has_self_reply_after("Test Account", 14) is False
-    assert queried == ["wxid_example_003", "wxid_example_004"]
+    assert bridge.has_self_reply_after("联系人示例", 14) is True
+    assert bridge.has_self_reply_after("测试账号", 14) is False
+    assert queried == ["wxid_example_005", "wxid_example_101"]

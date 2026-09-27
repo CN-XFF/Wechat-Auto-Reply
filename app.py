@@ -15,13 +15,14 @@ import time
 import tkinter as tk
 import uuid
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 
-from wechat_reply.engine import CodexReplyEngine, ReplyDecision
-from wechat_reply.wechat_bridge import SendCancelled, WeChatBridge
+from reply_core.engine import CodexReplyEngine, ReplyDecision
+from reply_core.wechat_bridge import SendCancelled, WeChatBridge
 
 
 ROOT = Path(__file__).resolve().parent
+APP_VERSION = "1.0.6"
 RUNTIME = ROOT / "runtime"
 LOGS = ROOT / "logs"
 RUNTIME.mkdir(exist_ok=True)
@@ -49,220 +50,19 @@ REASONING_EFFORT_LABEL_BY_ID = {
     effort_id: label for label, effort_id in REASONING_EFFORT_OPTIONS.items()
 }
 DEFAULT_MOUSE_MOVE_THRESHOLD_PX = 150
-DEFAULT_ACCOUNT_PLACEHOLDER = "wxid_example_001"
-
-
-def _needs_first_run_setup(config: dict) -> bool:
-    """Return whether the required local WeChat database selection is incomplete."""
-    db_dir = str(config.get("db_dir") or "").strip()
-    account = str(config.get("account") or "").strip()
-    if not db_dir or not account:
-        return True
-    if account.casefold() == DEFAULT_ACCOUNT_PLACEHOLDER.casefold():
-        return True
-    normalized_dir = db_dir.replace("/", "\\").casefold()
-    if "path\\to\\wechat" in normalized_dir:
-        return True
-    if account in {".", ".."} or Path(account).name != account:
-        return True
-    try:
-        database_root = Path(db_dir).expanduser()
-        return not (database_root / account / "db_storage").is_dir()
-    except (OSError, ValueError):
-        return True
-
-
-def _save_first_run_config(config_path: Path, config: dict) -> Path | None:
-    """Back up the current config and replace it atomically with first-run choices."""
-    backup_path = None
-    if config_path.exists():
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        backup_path = config_path.with_name(
-            f"{config_path.stem}.first-run-backup-{stamp}{config_path.suffix}"
-        )
-        suffix = 1
-        while backup_path.exists():
-            backup_path = config_path.with_name(
-                f"{config_path.stem}.first-run-backup-{stamp}-{suffix}{config_path.suffix}"
-            )
-            suffix += 1
-        shutil.copy2(config_path, backup_path)
-
-    temporary_path = config_path.with_name(config_path.name + ".first-run.tmp")
-    try:
-        temporary_path.write_text(
-            json.dumps(config, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        os.replace(temporary_path, config_path)
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink()
-    return backup_path
-
-
-class FirstRunSetup:
-    """Collect the local database location without opening or scanning its contents."""
-
-    def __init__(self, config: dict, config_path: Path):
-        self.config = config
-        self.config_path = config_path
-        self.completed = False
-        self.root = tk.Tk()
-        self.root.title("微信自动回复助手 - 首次设置")
-        self.root.geometry("650x430")
-        self.root.resizable(False, False)
-        self.root.protocol("WM_DELETE_WINDOW", self.cancel)
-
-        self.db_dir_var = tk.StringVar(value=str(config.get("db_dir") or ""))
-        self.account_var = tk.StringVar(value=str(config.get("account") or ""))
-        self._build_window()
-
-    def _build_window(self) -> None:
-        frame = ttk.Frame(self.root, padding=24)
-        frame.pack(fill="both", expand=True)
-        frame.columnconfigure(0, weight=1)
-
-        ttk.Label(
-            frame,
-            text="欢迎使用微信自动回复助手",
-            font=("Microsoft YaHei UI", 16, "bold"),
-        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
-        ttk.Label(
-            frame,
-            text=(
-                "先填写当前微信账号对应的本机数据库位置。此窗口只保存路径和账号目录名，"
-                "不会读取聊天内容、扫描联系人或发送消息。"
-            ),
-            wraplength=590,
-            justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(0, 20))
-
-        ttk.Label(frame, text="微信数据库根目录").grid(row=2, column=0, sticky="w")
-        path_row = ttk.Frame(frame)
-        path_row.grid(row=3, column=0, sticky="ew", pady=(4, 4))
-        path_row.columnconfigure(0, weight=1)
-        ttk.Entry(path_row, textvariable=self.db_dir_var).grid(
-            row=0, column=0, sticky="ew"
-        )
-        ttk.Button(path_row, text="浏览…", command=self._browse).grid(
-            row=0, column=1, padx=(8, 0)
-        )
-        ttk.Label(
-            frame,
-            text="选择包含账号文件夹的目录；账号文件夹中应有 db_storage 子目录。",
-            wraplength=590,
-        ).grid(row=4, column=0, sticky="w", pady=(0, 14))
-
-        ttk.Label(frame, text="账号文件夹名称").grid(row=5, column=0, sticky="w")
-        ttk.Entry(frame, textvariable=self.account_var).grid(
-            row=6, column=0, sticky="ew", pady=(4, 4)
-        )
-        ttk.Label(
-            frame,
-            text="请填写上述目录下、属于当前已登录微信账号的文件夹名称。",
-            wraplength=590,
-        ).grid(row=7, column=0, sticky="w", pady=(0, 18))
-
-        ttk.Label(
-            frame,
-            text=(
-                "安全默认值：自动回复关闭、试运行开启、远程指令关闭、联系人不自动读取。"
-                "你可以之后在程序配置中逐项调整。"
-            ),
-            wraplength=590,
-            justify="left",
-        ).grid(row=8, column=0, sticky="w", pady=(0, 18))
-
-        buttons = ttk.Frame(frame)
-        buttons.grid(row=9, column=0, sticky="e")
-        ttk.Button(buttons, text="取消", command=self.cancel).pack(side="right")
-        ttk.Button(
-            buttons,
-            text="保存并打开程序",
-            command=self.save,
-        ).pack(side="right", padx=(0, 8))
-
-    def _browse(self) -> None:
-        selected = filedialog.askdirectory(
-            parent=self.root,
-            title="选择微信数据库根目录",
-            mustexist=True,
-        )
-        if selected:
-            self.db_dir_var.set(selected)
-
-    def save(self) -> None:
-        db_dir = Path(self.db_dir_var.get().strip()).expanduser()
-        account = self.account_var.get().strip()
-        if not db_dir.is_dir():
-            messagebox.showerror(
-                "目录无效",
-                "请选择当前电脑上存在的微信数据库根目录。",
-                parent=self.root,
-            )
-            return
-        if not account or account in {".", ".."} or Path(account).name != account:
-            messagebox.showerror(
-                "账号名称无效",
-                "请填写有效的账号文件夹名称，不要填写路径。",
-                parent=self.root,
-            )
-            return
-        if not (db_dir / account / "db_storage").is_dir():
-            messagebox.showerror(
-                "找不到账号文件夹",
-                "所选根目录下没有这个账号的 db_storage 文件夹。请核对目录和账号名称。",
-                parent=self.root,
-            )
-            return
-
-        updated = dict(self.config)
-        updated["db_dir"] = str(db_dir)
-        updated["account"] = account
-        updated["enabled"] = False
-        updated["dry_run"] = True
-        updated["command_channel_enabled"] = False
-        updated["codex_command_enabled"] = False
-        updated["show_recent_self_contacts"] = False
-        for target in updated.get("targets", []):
-            if isinstance(target, dict):
-                target["listen_enabled"] = False
-                target["auto_reply_enabled"] = False
-                target["command_enabled"] = False
-        try:
-            _save_first_run_config(self.config_path, updated)
-        except OSError:
-            logging.exception("保存首次设置失败")
-            messagebox.showerror(
-                "保存失败",
-                "无法保存配置。请检查安装目录权限后重试。原配置备份（如已创建）仍保留。",
-                parent=self.root,
-            )
-            return
-        self.completed = True
-        self.root.destroy()
-
-    def cancel(self) -> None:
-        self.root.destroy()
-
-    def run(self) -> bool:
-        self.root.mainloop()
-        return self.completed
-
-
-def _run_first_run_setup() -> bool:
-    config_path = ROOT / "config.json"
-    if not config_path.exists():
-        example_path = ROOT / "config.example.json"
-        if not example_path.exists():
-            raise FileNotFoundError("未找到 config.json 或 config.example.json")
-        shutil.copy2(example_path, config_path)
-
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    if not _needs_first_run_setup(config):
-        return True
-    return FirstRunSetup(config, config_path).run()
+UI_COLORS = {
+    "page": "#F2F5F7",
+    "surface": "#FFFFFF",
+    "text": "#24323C",
+    "muted": "#687781",
+    "border": "#D8E1E6",
+    "accent": "#188A55",
+    "accent_hover": "#116E43",
+    "accent_soft": "#E7F4EC",
+    "danger": "#C43D4B",
+    "danger_hover": "#A92D3B",
+    "log_text": "#24323C",
+}
 
 
 def split_reply_messages(reply: str) -> list[str]:
@@ -374,6 +174,8 @@ class Application:
         self.test_reply_content_widget: tk.Entry | None = None
         self.test_reply_target_labels: dict[str, str] = {}
         self.test_reply_button: tk.Button | None = None
+        self.test_search_button: tk.Button | None = None
+        self.test_reply_send_var: tk.BooleanVar | None = None
         self.test_reply_active = False
         logging.info("启动阶段：创建状态窗口")
         self.root = tk.Tk()
@@ -469,21 +271,94 @@ class Application:
             self._persist_config()
             logging.info("已加入近期联系人：%s", "、".join(t["name"] for t in self.config["targets"]))
 
+    def _apply_ui_theme(self) -> None:
+        colors = UI_COLORS
+        self.root.configure(bg=colors["page"])
+        self.root.option_add("*Font", ("Microsoft YaHei UI", 9))
+        self.root.option_add("*background", colors["surface"])
+        self.root.option_add("*foreground", colors["text"])
+        self.root.option_add("*Button.background", colors["surface"])
+        self.root.option_add("*Button.foreground", colors["text"])
+        self.root.option_add("*Button.activeBackground", colors["accent_soft"])
+        self.root.option_add("*Button.activeForeground", colors["accent_hover"])
+        self.root.option_add("*Button.relief", "raised")
+        self.root.option_add("*Button.borderWidth", 1)
+        self.root.option_add("*Button.highlightThickness", 0)
+        self.root.option_add("*Button.padX", 9)
+        self.root.option_add("*Button.padY", 4)
+        self.root.option_add("*Entry.background", colors["surface"])
+        self.root.option_add("*Entry.relief", "flat")
+        self.root.option_add("*Entry.highlightThickness", 1)
+        self.root.option_add("*Entry.highlightBackground", colors["border"])
+        self.root.option_add("*Entry.highlightColor", colors["accent"])
+        self.root.option_add("*Text.background", colors["surface"])
+        self.root.option_add("*Text.foreground", colors["text"])
+        self.root.option_add("*Text.relief", "flat")
+        self.root.option_add("*Text.highlightThickness", 1)
+        self.root.option_add("*Text.highlightBackground", colors["border"])
+        self.root.option_add("*Text.highlightColor", colors["accent"])
+
+        style = ttk.Style(self.root)
+        try:
+            if "clam" in style.theme_names():
+                style.theme_use("clam")
+            style.configure(
+                "TCombobox",
+                padding=(7, 4),
+                fieldbackground=colors["surface"],
+                background=colors["surface"],
+                foreground=colors["text"],
+                bordercolor=colors["border"],
+                lightcolor=colors["surface"],
+                darkcolor=colors["border"],
+                arrowsize=12,
+            )
+            style.map(
+                "TCombobox",
+                fieldbackground=[("readonly", colors["surface"])],
+                foreground=[("disabled", colors["muted"])],
+            )
+            style.configure(
+                "Vertical.TScrollbar",
+                background=colors["border"],
+                troughcolor=colors["page"],
+                arrowcolor=colors["muted"],
+                bordercolor=colors["page"],
+                lightcolor=colors["border"],
+                darkcolor=colors["border"],
+                arrowsize=12,
+            )
+        except tk.TclError as exc:
+            logging.debug("应用 ttk 界面样式失败，使用系统默认样式：%s", exc)
+
     def _setup_status_window(self) -> None:
         self.root.title("微信自动回复运行中")
         self.root.geometry("760x900")
         self.root.minsize(700, 700)
+        self._apply_ui_theme()
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
 
-        page_canvas = tk.Canvas(self.root, highlightthickness=0)
-        page_scrollbar = tk.Scrollbar(
-            self.root, orient="vertical", command=page_canvas.yview
+        page_shell = tk.Frame(self.root)
+        page_shell.grid(row=0, column=0, sticky="nsew")
+        page_shell.grid_columnconfigure(0, weight=1)
+        page_shell.grid_rowconfigure(0, weight=1)
+
+        page_canvas = tk.Canvas(
+            page_shell, bg=UI_COLORS["page"], highlightthickness=0, borderwidth=0
+        )
+        page_scrollbar = ttk.Scrollbar(
+            page_shell, orient="vertical", command=page_canvas.yview
         )
         page_canvas.configure(yscrollcommand=page_scrollbar.set)
         page_canvas.grid(row=0, column=0, sticky="nsew")
         page_scrollbar.grid(row=0, column=1, sticky="ns")
-        content = tk.Frame(page_canvas)
+        sticky_footer = tk.Frame(
+            self.root, borderwidth=1, relief="groove", padx=8, pady=4
+        )
+        sticky_footer.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        sticky_footer.grid_columnconfigure(0, weight=1)
+        content = tk.Frame(page_canvas, bg=UI_COLORS["surface"])
         content.grid_columnconfigure(0, weight=1)
         content_window = page_canvas.create_window(
             (0, 0), window=content, anchor="nw"
@@ -502,24 +377,38 @@ class Application:
         )
         state = "开启" if self.config.get("enabled", True) else "暂停"
         self.status_detail_var = tk.StringVar(value="处理完成：等待消息")
-        tk.Label(
+        header_panel = tk.Frame(
             content,
-            text="微信自动回复运行中",
-            font=("Microsoft YaHei UI", 14, "bold"),
-            fg="#138a36",
-        ).grid(row=0, column=0, pady=(16, 6))
+            bg=UI_COLORS["surface"],
+            padx=14,
+            pady=9,
+            highlightthickness=1,
+            highlightbackground=UI_COLORS["border"],
+        )
+        header_panel.grid(row=0, column=0, sticky="ew", padx=30, pady=(14, 6))
+        header_panel.grid_columnconfigure(0, weight=1)
+        tk.Label(
+            header_panel,
+            text=f"微信自动回复运行中（版本 {APP_VERSION}）",
+            font=("Microsoft YaHei UI", 15, "bold"),
+            fg=UI_COLORS["accent"],
+            bg=UI_COLORS["surface"],
+            anchor="w",
+        ).pack(anchor="w")
         self.header_status_var = tk.StringVar(
             value=(
                 f"状态：{state}    PID：{os.getpid()}    "
                 f"模型：{self.engine.model_name}（{self.engine.reasoning_effort}）"
             )
         )
-        status_row = tk.Frame(content)
-        status_row.grid(row=1, column=0, pady=2)
+        status_row = tk.Frame(header_panel, bg=UI_COLORS["surface"])
+        status_row.pack(fill="x", pady=(5, 0))
         tk.Label(
             status_row,
             textvariable=self.header_status_var,
             font=("Microsoft YaHei UI", 10),
+            bg=UI_COLORS["surface"],
+            fg=UI_COLORS["muted"],
         ).pack(side="left")
         self.global_auto_reply_var = tk.BooleanVar(
             value=bool(self.config.get("enabled", True))
@@ -679,9 +568,16 @@ class Application:
         ).pack(side="left", padx=(6, 0))
 
         def _make_collapsible_section(parent, title: str, *, padx: int = 8, pady: int = 5):
-            section = tk.Frame(parent, borderwidth=1, relief="groove")
+            section = tk.Frame(
+                parent,
+                bg=UI_COLORS["surface"],
+                borderwidth=0,
+                relief="solid",
+                highlightthickness=1,
+                highlightbackground=UI_COLORS["border"],
+            )
             section.grid_columnconfigure(0, weight=1)
-            body = tk.Frame(section)
+            body = tk.Frame(section, bg=UI_COLORS["surface"])
             body.grid(row=1, column=0, sticky="ew", padx=padx, pady=pady)
             expanded = {"value": True}
 
@@ -706,7 +602,11 @@ class Application:
                 borderwidth=0,
                 highlightthickness=0,
                 padx=3,
-                pady=1,
+                pady=5,
+                bg=UI_COLORS["surface"],
+                fg=UI_COLORS["text"],
+                activebackground=UI_COLORS["accent_soft"],
+                activeforeground=UI_COLORS["accent_hover"],
                 cursor="hand2",
             )
             header.grid(row=0, column=0, sticky="ew", padx=3, pady=(2, 0))
@@ -722,7 +622,7 @@ class Application:
         )
         self.test_reply_target_labels = self._build_test_reply_target_labels()
         test_target_choices = list(self.test_reply_target_labels)
-        command_contact = str(self.config.get("command_contact") or "")
+        command_contact = str(self.config.get("command_contact") or "测试账号")
         default_test_label = next(
             (
                 label
@@ -745,21 +645,53 @@ class Application:
         )
         self.test_reply_content_widget = tk.Entry(test_frame, width=46, font=("Microsoft YaHei UI", 9))
         self.test_reply_content_widget.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(4, 0))
+        test_actions = tk.Frame(test_frame)
+        test_actions.grid(row=1, column=2, sticky="e", pady=(4, 0))
         self.test_reply_button = tk.Button(
-            test_frame,
+            test_actions,
             text="开始测试",
             command=self._start_fixed_reply_test,
             width=12,
             state="normal" if test_target_choices else "disabled",
+            bg=UI_COLORS["accent"],
+            fg=UI_COLORS["surface"],
+            activebackground=UI_COLORS["accent_hover"],
+            activeforeground=UI_COLORS["surface"],
+            font=("Microsoft YaHei UI", 9, "bold"),
+            padx=10,
+            pady=5,
+            cursor="hand2",
         )
-        self.test_reply_button.grid(row=1, column=2, sticky="e", pady=(4, 0))
+        self.test_reply_button.grid(row=0, column=0, sticky="ew")
+        self.test_search_button = tk.Button(
+            test_actions,
+            text="使用搜索查找测试",
+            command=self._start_search_contact_test,
+            width=16,
+            state="normal" if test_target_choices else "disabled",
+            bg=UI_COLORS["accent_soft"],
+            fg=UI_COLORS["accent_hover"],
+            activebackground="#D4EBDD",
+            activeforeground=UI_COLORS["accent_hover"],
+            padx=10,
+            pady=5,
+            cursor="hand2",
+        )
+        self.test_search_button.grid(row=1, column=0, sticky="ew", pady=(3, 0))
+        self.test_reply_send_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            test_frame,
+            text="是否发送消息",
+            variable=self.test_reply_send_var,
+            font=("Microsoft YaHei UI", 9),
+        ).grid(row=2, column=0, sticky="w", pady=(3, 0))
         tk.Label(
             test_frame,
-            text="点击后立即发送这段固定内容；沿用正常联系人定位、发送校验和单次发送流程，不调用模型。",
+            text="开始测试优先查聊天列表；搜索查找测试直接使用搜索框。勾选发送，否则只填入输入框，不调用模型。",
             font=("Microsoft YaHei UI", 8),
             fg="#555555",
             anchor="w",
-        ).grid(row=2, column=0, columnspan=3, sticky="ew", pady=(3, 0))
+        ).grid(row=2, column=1, columnspan=2, sticky="ew", pady=(3, 0))
 
         command_section, command_frame = _make_collapsible_section(
             content, "# 指令设置", padx=8, pady=4
@@ -842,7 +774,7 @@ class Application:
         command_canvas = tk.Canvas(
             command_list_outer, height=72, highlightthickness=0
         )
-        command_scrollbar = tk.Scrollbar(
+        command_scrollbar = ttk.Scrollbar(
             command_list_outer, orient="vertical", command=command_canvas.yview
         )
         command_contacts_frame = tk.Frame(command_canvas)
@@ -907,7 +839,7 @@ class Application:
         list_outer.grid_columnconfigure(0, weight=1)
         list_outer.grid_rowconfigure(0, weight=1)
         canvas = tk.Canvas(list_outer, height=300, highlightthickness=0)
-        scrollbar = tk.Scrollbar(list_outer, orient="vertical", command=canvas.yview)
+        scrollbar = ttk.Scrollbar(list_outer, orient="vertical", command=canvas.yview)
         contacts_frame = tk.Frame(canvas)
         contacts_frame.bind(
             "<Configure>",
@@ -1003,9 +935,25 @@ class Application:
                 font=("Microsoft YaHei UI", 9),
                 fg="#444444",
             ).pack(anchor="w")
-            editor = tk.Text(profile_panel, height=3, wrap="word", font=("Microsoft YaHei UI", 9), undo=True)
+            editor_container = tk.Frame(profile_panel, bg=UI_COLORS["surface"])
+            editor_container.pack(fill="x", pady=(1, 3))
+            editor_container.grid_columnconfigure(0, weight=1)
+            editor_container.grid_rowconfigure(0, weight=1)
+            profile_scrollbar = ttk.Scrollbar(
+                editor_container, orient="vertical"
+            )
+            editor = tk.Text(
+                editor_container,
+                height=3,
+                wrap="word",
+                font=("Microsoft YaHei UI", 9),
+                undo=True,
+                yscrollcommand=profile_scrollbar.set,
+            )
+            profile_scrollbar.configure(command=editor.yview)
             editor.insert("1.0", str(target.get("profile") or ""))
-            editor.pack(fill="x", pady=(1, 3))
+            editor.grid(row=0, column=0, sticky="nsew")
+            profile_scrollbar.grid(row=0, column=1, sticky="ns")
             self.target_profile_widgets[name] = editor
 
             buttons = tk.Frame(profile_panel)
@@ -1037,39 +985,57 @@ class Application:
             text="实时日志：接收 → 合并等待 → 生成 → 联系人校验 → 发送/处理完成",
             font=("Microsoft YaHei UI", 9, "bold"),
         ).grid(row=8, column=0, sticky="w", padx=32, pady=(4, 2))
-        log_frame = tk.Frame(content, borderwidth=1, relief="solid")
+        log_frame = tk.Frame(
+            content,
+            bg=UI_COLORS["surface"],
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=UI_COLORS["border"],
+        )
         log_frame.grid(row=9, column=0, sticky="nsew", padx=30, pady=(0, 6))
         log_frame.grid_columnconfigure(0, weight=1)
         log_frame.grid_rowconfigure(0, weight=1)
-        log_scroll = tk.Scrollbar(log_frame, orient="vertical")
+        log_scroll = ttk.Scrollbar(log_frame, orient="vertical")
         live_log = tk.Text(
             log_frame, height=8, wrap="word", font=("Consolas", 9),
             yscrollcommand=log_scroll.set, state="disabled",
+            bg="#FBFCFD", fg=UI_COLORS["log_text"],
+            insertbackground=UI_COLORS["accent"], relief="flat",
+            padx=8, pady=6, highlightthickness=0,
         )
         log_scroll.configure(command=live_log.yview)
         live_log.grid(row=0, column=0, sticky="nsew")
         log_scroll.grid(row=0, column=1, sticky="ns")
         self.live_log_widget = live_log
         tk.Label(
-            content,
+            sticky_footer,
             textvariable=self.status_detail_var,
-            wraplength=680,
+            wraplength=500,
             justify="left",
             font=("Microsoft YaHei UI", 9),
             fg="#1f6feb",
-        ).grid(row=10, column=0, sticky="w", padx=32, pady=(2, 2))
+        ).grid(row=0, column=0, sticky="ew", padx=(6, 10), pady=(2, 1))
         tk.Label(
-            content,
+            sticky_footer,
             text="关闭这个窗口会停止自动回复",
             font=("Microsoft YaHei UI", 9),
             fg="#666666",
-        ).grid(row=11, column=0, pady=(4, 4))
-        tk.Button(
-            content,
+        ).grid(row=1, column=0, sticky="w", padx=(6, 10), pady=(1, 2))
+        stop_button = tk.Button(
+            sticky_footer,
             text="停止自动回复",
             width=16,
             command=self.stop,
-        ).grid(row=12, column=0, pady=(0, 10))
+            bg=UI_COLORS["danger"],
+            fg=UI_COLORS["surface"],
+            activebackground=UI_COLORS["danger_hover"],
+            activeforeground=UI_COLORS["surface"],
+            font=("Microsoft YaHei UI", 9, "bold"),
+            padx=10,
+            pady=6,
+            cursor="hand2",
+        )
+        stop_button.grid(row=0, column=1, rowspan=2, sticky="e", padx=(6, 8), pady=4)
 
         def _on_page_mousewheel(event):
             widget = event.widget
@@ -1079,6 +1045,12 @@ class Application:
                     break
                 if widget in (contacts_frame, canvas, list_outer):
                     target_canvas = canvas
+                    break
+                if any(
+                    widget is profile_editor
+                    for profile_editor in self.target_profile_widgets.values()
+                ):
+                    target_canvas = widget
                     break
                 if widget in (live_log, log_frame):
                     target_canvas = live_log
@@ -1115,9 +1087,9 @@ class Application:
             labels[label] = name
         return labels
 
-    def _start_fixed_reply_test(self) -> None:
+    def _start_fixed_reply_test(self, contact_search_only: bool = False) -> None:
         if self.test_reply_active:
-            self._set_status("固定内容测试正在发送，请勿重复点击")
+            self._set_status("联系人测试正在执行，请勿重复点击")
             return
 
         selected_label = str(self.test_reply_target_var.get() or "").strip()
@@ -1134,36 +1106,72 @@ class Application:
                 content_widget.focus_set()
             return
 
+        should_send = bool(
+            self.test_reply_send_var.get()
+            if self.test_reply_send_var is not None else False
+        )
         self.test_reply_active = True
-        if self.test_reply_button is not None:
-            self.test_reply_button.configure(state="disabled")
-        self._set_status(f"固定内容测试：正在按正常发送流程发送给 {target_name}")
-        logging.info("开始固定内容测试：target=%s len=%d", target_name, len(text))
+        self._set_fixed_test_button_state("disabled")
+        route = "微信搜索框" if contact_search_only else "聊天列表优先流程"
+        if should_send:
+            self._set_status(f"联系人测试：使用{route}定位并向 {target_name} 发送固定内容")
+            logging.info("开始联系人测试：route=%s target=%s len=%d", route, target_name, len(text))
+        else:
+            self._set_status(f"联系人测试：使用{route}定位 {target_name} 并填入草稿，不会发送")
+            logging.info("开始联系人草稿测试：route=%s target=%s len=%d", route, target_name, len(text))
         try:
             threading.Thread(
                 target=self._send_fixed_reply_test,
-                args=(target_name, text),
+                args=(target_name, text, should_send, contact_search_only),
                 daemon=True,
                 name=f"fixed-reply-test-{target_name}",
             ).start()
         except Exception as exc:
             self.test_reply_active = False
-            if self.test_reply_button is not None:
-                self.test_reply_button.configure(state="normal")
+            self._set_fixed_test_button_state("normal")
             logging.exception("无法启动固定内容测试发送线程：target=%s", target_name)
             self._set_status(f"固定内容测试启动失败：{exc}")
 
-    def _send_fixed_reply_test(self, target_name: str, text: str) -> None:
+    def _send_fixed_reply_test(
+        self,
+        target_name: str,
+        text: str,
+        should_send: bool = False,
+        contact_search_only: bool = False,
+    ) -> None:
         try:
-            # Share the normal send lock, contact locator, verification, and
-            # single-submit bridge path with live automatic replies.
-            self._send_reply_messages(target_name, text)
+            if should_send:
+                # Use the regular verified single-submit flow, but force contact
+                # lookup through the search box instead of scanning the chat list.
+                self._send_reply_messages(
+                    target_name, text, contact_search_only=contact_search_only
+                )
+            else:
+                # The unchecked mode leaves an unsent draft in the confirmed chat.
+                with self.send_lock:
+                    prepare = (
+                        self.bridge.prepare_by_search
+                        if contact_search_only else self.bridge.prepare_message
+                    )
+                    prepare(target_name, text)
         except Exception as exc:
-            logging.exception("固定内容测试发送失败：target=%s", target_name)
+            logging.exception("固定内容测试失败：target=%s should_send=%s", target_name, should_send)
             self.events.put(("fixed_test_failed", target_name, None, None, str(exc)))
         else:
-            logging.info("固定内容测试已发送：target=%s len=%d", target_name, len(text))
-            self.events.put(("fixed_test_sent", target_name, None, None, ""))
+            if should_send:
+                logging.info("固定内容测试已发送：target=%s len=%d", target_name, len(text))
+                self.events.put(("fixed_test_sent", target_name, None, None, ""))
+            else:
+                logging.info("固定内容测试已填入草稿但未发送：target=%s len=%d", target_name, len(text))
+                self.events.put(("fixed_test_drafted", target_name, None, None, ""))
+
+    def _set_fixed_test_button_state(self, state: str) -> None:
+        for button in (self.test_reply_button, self.test_search_button):
+            if button is not None:
+                button.configure(state=state)
+
+    def _start_search_contact_test(self) -> None:
+        self._start_fixed_reply_test(contact_search_only=True)
 
     def _apply_model_selection(self) -> None:
         if self.model_choice_var is None:
@@ -1568,13 +1576,11 @@ class Application:
         if target_name not in self.bridge.targets:
             self._set_status(f"无法生成风格：没有找到联系人会话 {target_name}")
             return "break"
-        scan_limit = self.bridge.PROFILE_HISTORY_SCAN_LIMIT
-        sample_limit = self.bridge.PROFILE_EXAMPLE_MESSAGE_LIMIT
-        char_limit = self.bridge.PROFILE_EXAMPLE_CHAR_LIMIT
         approved = messagebox.askyesno(
-            "读取聊天并生成风格提示词",
-            f"将从本机读取“{target_name}”最近最多 {scan_limit} 条聊天记录，筛选最多 {sample_limit} 条文字样本（合计不超过 {char_limit} 字）。"
-            f"样本会发送给当前 Codex 模型（{self.engine.model_name}）分析口吻。生成结果只填入自定义风格框，不会自动保存或发送微信消息。\n\n继续吗？",
+            "读取全部聊天并生成详细提示词",
+            f"将从本机读取“{target_name}”会话的全部历史文字消息（不限条数），分批分析后生成较详细的关系与口吻规则。"
+            f"聊天文字会分批发送给当前 Codex 模型（{self.engine.model_name}），可能耗时较长并消耗额外额度；图片、语音和文件内容不在本次分析范围内。"
+            "生成结果只填入自定义风格框，不会自动保存或发送微信消息。\n\n确认继续吗？",
             parent=self.root,
         )
         if not approved:
@@ -1584,7 +1590,7 @@ class Application:
         button = self.target_profile_generate_buttons.get(target_name)
         if button is not None:
             button.configure(state="disabled")
-        self._set_status(f"正在读取 {target_name} 的聊天样本并生成风格提示词……")
+        self._set_status(f"正在读取 {target_name} 的全部历史文字消息并生成详细提示词……")
         logging.info("开始生成联系人风格提示词：target=%s", target_name)
         try:
             threading.Thread(
@@ -1605,7 +1611,14 @@ class Application:
             examples = self.bridge.style_profile_examples(target_name)
             if not examples:
                 raise RuntimeError("这个联系人的本地记录中没有可用的文字消息")
-            profile = self.engine.generate_style_profile(target_name, examples)
+            progress_callback = lambda text: self.events.put((
+                "style_profile_progress", target_name, text, None, ""
+            ))
+            profile = self.engine.generate_style_profile(
+                target_name,
+                examples,
+                progress_callback=progress_callback,
+            )
             self.events.put((
                 "style_profile_generated",
                 target_name,
@@ -2724,16 +2737,19 @@ class Application:
                 elif kind == "command":
                     logging.info("授权联系人指令事件已由主线程接收：target=%s", target_name)
                     self._handle_command(target_name, reason)
-                elif kind in {"fixed_test_sent", "fixed_test_failed"}:
+                elif kind in {"fixed_test_sent", "fixed_test_drafted", "fixed_test_failed"}:
                     self.test_reply_active = False
-                    if self.test_reply_button is not None:
-                        self.test_reply_button.configure(state="normal")
+                    self._set_fixed_test_button_state("normal")
                     if kind == "fixed_test_sent":
                         self._set_status(f"处理完成：固定内容测试已发送给 {target_name}")
+                    elif kind == "fixed_test_drafted":
+                        self._set_status(f"处理完成：已定位并将内容填入 {target_name} 输入框；未发送")
                     else:
                         self._set_status(f"固定内容测试发送失败：{target_name}：{reason}")
                 elif kind == "status":
                     self._set_status(reason)
+                elif kind == "style_profile_progress":
+                    self._set_status(str(msg or ""))
                 elif kind in {"style_profile_generated", "style_profile_generation_failed"}:
                     button = self.target_profile_generate_buttons.get(target_name)
                     if button is not None:
@@ -2746,7 +2762,7 @@ class Application:
                             widget.insert("1.0", profile)
                             count = int((msg or {}).get("sample_count") or 0)
                             self._set_status(
-                                f"已根据 {count} 条文字样本生成 {target_name} 的风格提示词；检查后点击“保存风格”生效"
+                                f"已分析 {target_name} 的完整历史，共 {count} 条文字消息；检查提示词后点击“保存风格”生效"
                             )
                             logging.info("联系人风格提示词已生成并填入编辑框：target=%s samples=%d len=%d", target_name, count, len(profile))
                         else:
@@ -2971,7 +2987,7 @@ class Application:
                     progress.configure(
                         text="已超时；通知授权联系人已关闭。本机确认窗口会继续等待，不会自动发送。"
                     )
-                    logging.info("敏感确认超时且备用联系人通知已关闭：target=%s", target_name)
+                    logging.info("敏感确认超时且小号通知已关闭：target=%s", target_name)
                     return
                 reply = editor.get("1.0", "end").strip()
                 if not reply:
@@ -3037,6 +3053,7 @@ class Application:
         target_name: str,
         text: str,
         pre_submit_check=None,
+        contact_search_only: bool = False,
     ) -> None:
         """Send one to three newline-separated reply bubbles without interleaving."""
         parts = split_reply_messages(text)
@@ -3047,11 +3064,21 @@ class Application:
                         cancel_reason = pre_submit_check()
                         if cancel_reason:
                             raise SendCancelled(cancel_reason)
-                        self.bridge.send_with_pre_submit_check(
-                            target_name, part, pre_submit_check
-                        )
+                        if contact_search_only:
+                            self.bridge.send_by_search_with_pre_submit_check(
+                                target_name, part, pre_submit_check
+                            )
+                        else:
+                            self.bridge.send_with_pre_submit_check(
+                                target_name, part, pre_submit_check
+                            )
                     else:
-                        self.bridge.send(target_name, part)
+                        sender = (
+                            self.bridge.send_by_search
+                            if contact_search_only
+                            else self.bridge.send
+                        )
+                        sender(target_name, part)
                 except Exception as exc:
                     # Successfully verified earlier bubbles are not offered for resend.
                     # The currently failing bubble may have been submitted, so the user
@@ -3137,10 +3164,8 @@ if __name__ == "__main__":
     try:
         if not ensure_single_instance():
             sys.exit(0)
-        if not _run_first_run_setup():
-            sys.exit(0)
         Application().run()
     except Exception as exc:
         logging.exception("启动失败")
-        messagebox.showerror("微信自动回复启动失败", str(exc))
+        messagebox.showerror("联系人示例 自动回复启动失败", str(exc))
         sys.exit(1)

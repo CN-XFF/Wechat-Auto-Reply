@@ -24,9 +24,7 @@ class SendCancelled(RuntimeError):
 
 
 class WeChatBridge:
-    PROFILE_HISTORY_SCAN_LIMIT = 3000
-    PROFILE_EXAMPLE_MESSAGE_LIMIT = 500
-    PROFILE_EXAMPLE_CHAR_LIMIT = 20000
+    PROFILE_HISTORY_PAGE_SIZE = 5000
 
     def __init__(self, config: dict, runtime_dir: Path):
         self.config = config
@@ -214,29 +212,45 @@ class WeChatBridge:
         return "\n".join(lines)[-char_limit:]
 
     def style_profile_examples(self, target_name: str) -> list[dict[str, str]]:
-        """Return bounded, chronological text samples for one contact's style profile."""
+        """Return every available chronological text message for one contact's style profile."""
         username = self.targets.get(target_name)
         if not username:
             raise ValueError(f"没有找到联系人会话：{target_name}")
 
-        messages = self.db.get_messages(username, limit=self.PROFILE_HISTORY_SCAN_LIMIT)
+        # get_messages returns each page newest-first. Page through the full
+        # conversation, then reverse once so analysis sees stable chronology.
+        messages_newest_first: list[dict] = []
+        offset = 0
+        while True:
+            page = self.db.get_messages(
+                username,
+                limit=self.PROFILE_HISTORY_PAGE_SIZE,
+                offset=offset,
+            )
+            if not page:
+                break
+            messages_newest_first.extend(page)
+            offset += len(page)
+            if len(page) < self.PROFILE_HISTORY_PAGE_SIZE:
+                break
+
         examples: list[dict[str, str]] = []
-        for message in reversed(messages):
+        for message in reversed(messages_newest_first):
             if message.get("type") != "文本":
                 continue
             content = str(message.get("content") or "").replace("\x00", "").strip()
             if not content:
                 continue
-            if len(content) > self.PROFILE_EXAMPLE_CHAR_LIMIT:
-                content = content[-self.PROFILE_EXAMPLE_CHAR_LIMIT:]
             speaker = "我" if message.get("sender_id") in {1, 2} else "对方"
             examples.append({"speaker": speaker, "text": content})
 
-        examples = examples[-self.PROFILE_EXAMPLE_MESSAGE_LIMIT:]
-        total_chars = sum(len(item["text"]) for item in examples)
-        while examples and total_chars > self.PROFILE_EXAMPLE_CHAR_LIMIT:
-            removed = examples.pop(0)
-            total_chars -= len(removed["text"])
+        logging.info(
+            "联系人完整历史文字记录读取完成：target=%s total_messages=%d text_messages=%d text_chars=%d",
+            target_name,
+            len(messages_newest_first),
+            len(examples),
+            sum(len(item["text"]) for item in examples),
+        )
         return examples
 
     def listen(self, callback_factory, target_names: list[str] | None = None) -> None:
@@ -293,11 +307,35 @@ class WeChatBridge:
             try:
                 if task is None:
                     return
-                future, target_name, text, pre_submit_check = task
+                if len(task) == 5:
+                    future, target_name, text, pre_submit_check, task_kind = task
+                else:
+                    future, target_name, text, pre_submit_check = task
+                    task_kind = "send"
                 if not future.set_running_or_notify_cancel():
                     continue
                 try:
-                    result = self._send_once(target_name, text, pre_submit_check)
+                    if task_kind == "search_send":
+                        result = self._send_once(
+                            target_name,
+                            text,
+                            pre_submit_check,
+                            contact_search_only=True,
+                        )
+                    elif task_kind == "search_draft":
+                        result = self._send_once(
+                            target_name,
+                            text,
+                            pre_submit_check,
+                            contact_search_only=True,
+                            submit=False,
+                        )
+                    elif task_kind == "draft":
+                        result = self._send_once(
+                            target_name, text, pre_submit_check, submit=False
+                        )
+                    else:
+                        result = self._send_once(target_name, text, pre_submit_check)
                 except Exception as exc:
                     future.set_exception(exc)
                 else:
@@ -649,24 +687,64 @@ class WeChatBridge:
         """在确认会话后、真正提交前再次检查是否应取消发送。"""
         return self._enqueue_send(target_name, text, pre_submit_check)
 
+    def send_by_search(self, target_name: str, text: str) -> None:
+        """测试专用：绕过聊天列表，使用搜索框定位后发送一次。"""
+        return self._enqueue_send(
+            target_name, text, None, contact_search_only=True
+        )
+
+    def send_by_search_with_pre_submit_check(
+        self,
+        target_name: str,
+        text: str,
+        pre_submit_check: Callable[[], str | None],
+    ) -> None:
+        """搜索框定位后，在提交前执行同一发送状态检查。"""
+        return self._enqueue_send(
+            target_name, text, pre_submit_check, contact_search_only=True
+        )
+
+    def prepare_by_search(self, target_name: str, text: str) -> None:
+        """搜索并确认联系人后填入输入框，保留草稿但绝不提交发送。"""
+        return self._enqueue_send(
+            target_name, text, None, contact_search_only=True, submit=False
+        )
+
+    def prepare_message(self, target_name: str, text: str) -> None:
+        """按正常聊天列表优先流程定位后填入输入框，不提交发送。"""
+        return self._enqueue_send(target_name, text, None, submit=False)
+
     def _enqueue_send(
         self,
         target_name: str,
         text: str,
         pre_submit_check: Callable[[], str | None] | None,
+        contact_search_only: bool = False,
+        submit: bool = True,
     ) -> None:
         if self.config.get("dry_run", False):
             return
         # Keep Windows GUI/input operations and their cached WeChatGUI instance
         # on one persistent worker instead of short-lived threads.
         if getattr(self, "_send_worker_ident", None) == threading.get_ident() or not hasattr(self, "_send_queue"):
-            return self._send_once(target_name, text, pre_submit_check)
+            return self._send_once(
+                target_name,
+                text,
+                pre_submit_check,
+                contact_search_only=contact_search_only,
+                submit=submit,
+            )
         self._ensure_send_worker()
         future: Future = Future()
         with self._send_worker_lock:
             if self._send_worker_stopping:
                 raise RuntimeError("微信发送工作线程已停止")
-            self._send_queue.put((future, target_name, text, pre_submit_check))
+            task = (future, target_name, text, pre_submit_check)
+            if contact_search_only:
+                task += ("search_send" if submit else "search_draft",)
+            elif not submit:
+                task += ("draft",)
+            self._send_queue.put(task)
         return future.result()
 
     def _send_once(
@@ -674,6 +752,8 @@ class WeChatBridge:
         target_name: str,
         text: str,
         pre_submit_check: Callable[[], str | None] | None = None,
+        contact_search_only: bool = False,
+        submit: bool = True,
     ) -> None:
         if self.config.get("dry_run", False):
             return
@@ -698,6 +778,12 @@ class WeChatBridge:
                 except RuntimeError:
                     wx = WeChatGUI()
             wx._cached_db = self.db
+            if contact_search_only:
+                primary_hwnd = int(getattr(wx, "_primary_hwnd", 0) or 0)
+                current_hwnd = int(getattr(wx, "main_hwnd", 0) or 0)
+                if primary_hwnd and primary_hwnd != current_hwnd:
+                    if not wx.use_window(primary_hwnd):
+                        raise RuntimeError("无法切回微信主窗口执行搜索；未执行发送")
             # Minimized/off-screen windows still take the recovery path. A cached
             # window is reused only after input, HWND, PID, visibility and rect checks.
             hwnd = int(getattr(wx, "main_hwnd", 0) or 0)
@@ -717,10 +803,20 @@ class WeChatBridge:
                     )
                 raise RuntimeError("微信窗口被隐藏、最小化或无响应")
             refresh_sidebar = getattr(wx, "refresh_sidebar_layout_before_reply", None)
-            if callable(refresh_sidebar) and not refresh_sidebar():
+            if (not contact_search_only and callable(refresh_sidebar)
+                    and not refresh_sidebar()):
                 raise RuntimeError("回复前未能确认聊天列表布局，已取消发送")
-            if not wx.open_chat(ui_name):
-                raise RuntimeError(f"无法打开会话：{ui_name}")
+            if contact_search_only:
+                logging.info(
+                    "搜索定位测试发送：绕过聊天列表，直接使用搜索框 target=%s",
+                    target_name,
+                )
+                opened = wx.search_chat_only(ui_name)
+            else:
+                opened = wx.open_chat(ui_name)
+            if not opened:
+                route = "搜索框" if contact_search_only else "聊天列表或搜索框"
+                raise RuntimeError(f"无法通过{route}打开会话：{ui_name}")
             if not wx._chat_is_open(ui_name):
                 raise RuntimeError(f"无法确认当前会话就是 {ui_name}；未执行发送")
             seed_geometry = getattr(wx, "seed_reply_input_geometry", None)
@@ -768,6 +864,13 @@ class WeChatBridge:
                 raise SendCancelled(
                     f"提交前检测到会话已切换或无法确认是 {ui_name}，未执行发送"
                 )
+            if not submit:
+                self._remember_wechat_gui(wx)
+                logging.info(
+                    "搜索框测试已定位并填入草稿：target=%s len=%d；未执行发送",
+                    target_name, len(text),
+                )
+                return
             self._submit_once(wx, self.config.get("send_submit_method", "button"))  # 只执行一次，禁止任何发送重试。
             deadline = time.time() + 12
             while time.time() < deadline:

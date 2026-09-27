@@ -13,9 +13,9 @@ sys.path.insert(0, str(ROOT / "vendor" / "wechatauto-replica"))
 sys.path.insert(0, str(ROOT))
 
 import app as app_module  # noqa: E402
-import wechat_reply.wechat_bridge as bridge_module  # noqa: E402
+import reply_core.wechat_bridge as bridge_module  # noqa: E402
 from app import Application  # noqa: E402
-from wechat_reply.wechat_bridge import SendCancelled, WeChatBridge  # noqa: E402
+from reply_core.wechat_bridge import SendCancelled, WeChatBridge  # noqa: E402
 
 
 def _message(seq: int, text: str) -> dict:
@@ -29,7 +29,7 @@ def test_manual_reply_check_failure_is_unknown_and_cancels_reply():
     app._target_auto_reply_enabled = lambda _name: True
     app._keyboard_input_detected = lambda: False
 
-    assert app._cancel_reason_before_reply("Contact A", _message(10, "问题")) == (
+    assert app._cancel_reason_before_reply("联系人示例", _message(10, "问题")) == (
         "无法确认你是否已手动回复，已取消自动发送"
     )
 
@@ -41,27 +41,27 @@ def test_missing_incoming_sequence_fails_closed():
     app._target_auto_reply_enabled = lambda _name: True
     app._keyboard_input_detected = lambda: False
 
-    assert app._cancel_reason_before_reply("Contact A", {"type": "文本"}) == (
+    assert app._cancel_reason_before_reply("联系人示例", {"type": "文本"}) == (
         "无法确认你是否已手动回复，已取消自动发送"
     )
 
 
 def test_database_error_in_manual_reply_check_returns_unknown():
     bridge = WeChatBridge.__new__(WeChatBridge)
-    bridge.targets = {"Contact A": "wxid_example_003"}
+    bridge.targets = {"联系人示例": "wxid_example_005"}
 
     def fail_read(*_args, **_kwargs):
         raise OSError("snapshot temporarily unavailable")
 
     bridge.db = SimpleNamespace(get_messages=fail_read)
-    assert bridge.has_self_reply_after("Contact A", 10) is None
+    assert bridge.has_self_reply_after("联系人示例", 10) is None
 
 
 def test_final_send_gate_cancels_and_clears_unsent_draft(monkeypatch):
     bridge = WeChatBridge.__new__(WeChatBridge)
     bridge.config = {"dry_run": False, "send_submit_method": "enter"}
-    bridge.targets = {"Contact A": "wxid_example_003"}
-    bridge.ui_names = {"Contact A": "Contact A"}
+    bridge.targets = {"联系人示例": "wxid_example_005"}
+    bridge.ui_names = {"联系人示例": "联系人示例"}
     bridge.db = object()
     bridge._reusable_wechat_gui = lambda: None
     bridge._window_rect = lambda _hwnd: (100, 100, 1200, 900)
@@ -90,7 +90,7 @@ def test_final_send_gate_cancels_and_clears_unsent_draft(monkeypatch):
 
     with pytest.raises(SendCancelled, match="手动回复"):
         bridge.send_with_pre_submit_check(
-            "Contact A", "候选回复", lambda: next(checks)
+            "联系人示例", "候选回复", lambda: next(checks)
         )
 
     assert sent_actions == [("paste", "候选回复"), ("paste", "")]
@@ -99,12 +99,12 @@ def test_final_send_gate_cancels_and_clears_unsent_draft(monkeypatch):
 def test_duplicate_display_name_is_refused_before_opening_wechat():
     bridge = WeChatBridge.__new__(WeChatBridge)
     bridge.config = {"dry_run": False}
-    bridge.targets = {"Contact A": "wxid_example_003", "Other": "wxid_example_008"}
-    bridge.ui_names = {"Contact A": "同名", "Other": "同名"}
+    bridge.targets = {"联系人示例": "wxid_example_005", "Other": "wxid_example_006"}
+    bridge.ui_names = {"联系人示例": "同名", "Other": "同名"}
     bridge._reusable_wechat_gui = lambda: pytest.fail("must refuse before touching WeChat UI")
 
     with pytest.raises(SendCancelled, match="重名"):
-        bridge.send_with_pre_submit_check("Contact A", "候选回复", lambda: "")
+        bridge.send_with_pre_submit_check("联系人示例", "候选回复", lambda: "")
 
 
 def test_two_contacts_keep_independent_batches_and_are_both_processed():
@@ -112,8 +112,8 @@ def test_two_contacts_keep_independent_batches_and_are_both_processed():
     app.config = {
         "enabled": True,
         "targets": [
-            {"name": "Test Account", "auto_reply_enabled": True, "wait_seconds": 0},
-            {"name": "Contact A", "auto_reply_enabled": True, "wait_seconds": 0},
+            {"name": "测试账号", "auto_reply_enabled": True, "wait_seconds": 0},
+            {"name": "联系人示例", "auto_reply_enabled": True, "wait_seconds": 0},
         ],
     }
     app.events = queue.Queue()
@@ -128,9 +128,9 @@ def test_two_contacts_keep_independent_batches_and_are_both_processed():
     app._handle_command_if_any = lambda _name, _content: False
     app._user_replied_after_incoming = lambda _name, _msg: False
 
-    app.on_message("Test Account", _message(11, "给测试账号的消息"), None)
-    app.on_message("Contact A", _message(22, "给Contact A的消息"), None)
-    assert set(app.pending_batches) == {"Test Account", "Contact A"}
+    app.on_message("测试账号", _message(11, "给小号的消息"), None)
+    app.on_message("联系人示例", _message(22, "给联系人示例的消息"), None)
+    assert set(app.pending_batches) == {"测试账号", "联系人示例"}
 
     processed = []
     both_done = threading.Event()
@@ -151,7 +151,7 @@ def test_two_contacts_keep_independent_batches_and_are_both_processed():
     worker.join(3)
 
     assert not worker.is_alive()
-    assert dict(processed) == {"Test Account": "给测试账号的消息", "Contact A": "给Contact A的消息"}
+    assert dict(processed) == {"测试账号": "给小号的消息", "联系人示例": "给联系人示例的消息"}
 
 
 def test_simultaneous_contact_sends_are_serialized_without_target_mixup():
@@ -189,8 +189,8 @@ def test_simultaneous_contact_sends_are_serialized_without_target_mixup():
             errors.append(exc)
 
     callers = [
-        threading.Thread(target=send, args=("Test Account", "发给测试账号")),
-        threading.Thread(target=send, args=("Contact A", "发给Contact A")),
+        threading.Thread(target=send, args=("测试账号", "发给小号")),
+        threading.Thread(target=send, args=("联系人示例", "发给联系人示例")),
     ]
     for caller in callers:
         caller.start()
@@ -200,7 +200,7 @@ def test_simultaneous_contact_sends_are_serialized_without_target_mixup():
 
     assert not errors
     assert all(not caller.is_alive() for caller in callers)
-    assert set(sent) == {("Test Account", "发给测试账号"), ("Contact A", "发给Contact A")}
+    assert set(sent) == {("测试账号", "发给小号"), ("联系人示例", "发给联系人示例")}
     assert peak_active == 1
 
 
@@ -208,14 +208,14 @@ def test_trusted_command_is_dispatched_to_codex_using_resolved_executable(monkey
     trusted_username = "wxid_example_004"
     app = Application.__new__(Application)
     app.config = {
-        "command_contact": "Test Account",
+        "command_contact": "测试账号",
         "command_contact_username": trusted_username,
         "codex_command_enabled": True,
         "codex_command_workdir": str(tmp_path),
         "codex_command_timeout_seconds": 30,
-        "targets": [{"name": "Test Account", "username": trusted_username, "command_enabled": True}],
+        "targets": [{"name": "测试账号", "username": trusted_username, "command_enabled": True}],
     }
-    app.bridge = SimpleNamespace(targets={"Test Account": trusted_username})
+    app.bridge = SimpleNamespace(targets={"测试账号": trusted_username})
     replies = []
     app._send_command_reply = lambda target, text: replies.append((target, text))
     seen = {}
@@ -228,7 +228,7 @@ def test_trusted_command_is_dispatched_to_codex_using_resolved_executable(monkey
         return SimpleNamespace(returncode=0, stdout="完成", stderr="")
 
     monkeypatch.setattr(app_module.subprocess, "run", fake_run)
-    app._run_codex_instruction("Test Account", "检查工作区状态")
+    app._run_codex_instruction("测试账号", "检查工作区状态")
 
     assert seen["command"][0] == r"C:\Codex\codex.exe"
     assert seen["command"][1:2] == ["exec"]
@@ -239,20 +239,20 @@ def test_trusted_command_is_dispatched_to_codex_using_resolved_executable(monkey
     startupinfo = seen["kwargs"]["startupinfo"]
     assert startupinfo.dwFlags & app_module.subprocess.STARTF_USESHOWWINDOW
     assert startupinfo.wShowWindow == app_module.subprocess.SW_HIDE
-    assert replies == [("Test Account", "Codex 执行完成（退出码 0）：\n完成")]
+    assert replies == [("测试账号", "Codex 执行完成（退出码 0）：\n完成")]
 
 
 def test_codex_command_result_reports_nonzero_exit_and_both_output_streams(monkeypatch, tmp_path):
     trusted_username = "wxid_example_004"
     app = Application.__new__(Application)
     app.config = {
-        "command_contact": "Test Account",
+        "command_contact": "测试账号",
         "command_contact_username": trusted_username,
         "codex_command_enabled": True,
         "codex_command_workdir": str(tmp_path),
-        "targets": [{"name": "Test Account", "username": trusted_username, "command_enabled": True}],
+        "targets": [{"name": "测试账号", "username": trusted_username, "command_enabled": True}],
     }
-    app.bridge = SimpleNamespace(targets={"Test Account": trusted_username})
+    app.bridge = SimpleNamespace(targets={"测试账号": trusted_username})
     replies = []
     app._send_command_reply = lambda target, text: replies.append((target, text)) or True
     monkeypatch.setattr(app_module.shutil, "which", lambda _name: r"C:\Codex\codex.exe")
@@ -264,7 +264,7 @@ def test_codex_command_result_reports_nonzero_exit_and_both_output_streams(monke
         ),
     )
 
-    app._run_codex_instruction("Test Account", "执行一个会失败的操作")
+    app._run_codex_instruction("测试账号", "执行一个会失败的操作")
 
     assert len(replies) == 1
     assert "执行失败（退出码 17）" in replies[0][1]
@@ -276,14 +276,14 @@ def test_codex_command_timeout_sends_partial_output(monkeypatch, tmp_path):
     trusted_username = "wxid_example_004"
     app = Application.__new__(Application)
     app.config = {
-        "command_contact": "Test Account",
+        "command_contact": "测试账号",
         "command_contact_username": trusted_username,
         "codex_command_enabled": True,
         "codex_command_workdir": str(tmp_path),
         "codex_command_timeout_seconds": 9,
-        "targets": [{"name": "Test Account", "username": trusted_username, "command_enabled": True}],
+        "targets": [{"name": "测试账号", "username": trusted_username, "command_enabled": True}],
     }
-    app.bridge = SimpleNamespace(targets={"Test Account": trusted_username})
+    app.bridge = SimpleNamespace(targets={"测试账号": trusted_username})
     replies = []
     app._send_command_reply = lambda target, text: replies.append((target, text)) or True
     monkeypatch.setattr(app_module.shutil, "which", lambda _name: r"C:\Codex\codex.exe")
@@ -295,7 +295,7 @@ def test_codex_command_timeout_sends_partial_output(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(app_module.subprocess, "run", timeout)
-    app._run_codex_instruction("Test Account", "一个需要超时的操作")
+    app._run_codex_instruction("测试账号", "一个需要超时的操作")
 
     assert len(replies) == 1
     assert "执行超时（9 秒）" in replies[0][1]
@@ -307,18 +307,18 @@ def test_codex_command_missing_executable_still_sends_failure_result(monkeypatch
     trusted_username = "wxid_example_004"
     app = Application.__new__(Application)
     app.config = {
-        "command_contact": "Test Account",
+        "command_contact": "测试账号",
         "command_contact_username": trusted_username,
         "codex_command_enabled": True,
         "codex_command_workdir": str(tmp_path),
-        "targets": [{"name": "Test Account", "username": trusted_username, "command_enabled": True}],
+        "targets": [{"name": "测试账号", "username": trusted_username, "command_enabled": True}],
     }
-    app.bridge = SimpleNamespace(targets={"Test Account": trusted_username})
+    app.bridge = SimpleNamespace(targets={"测试账号": trusted_username})
     replies = []
     app._send_command_reply = lambda target, text: replies.append((target, text)) or True
     monkeypatch.setattr(app_module.shutil, "which", lambda _name: None)
 
-    app._run_codex_instruction("Test Account", "查看状态")
+    app._run_codex_instruction("测试账号", "查看状态")
 
     assert len(replies) == 1
     assert "执行失败（FileNotFoundError）" in replies[0][1]
@@ -329,12 +329,12 @@ def test_trusted_command_starts_codex_without_waiting_for_wechat_ack(monkeypatch
     trusted_username = "wxid_example_004"
     app = Application.__new__(Application)
     app.config = {
-        "command_contact": "Test Account",
+        "command_contact": "测试账号",
         "command_contact_username": trusted_username,
         "codex_command_enabled": True,
-        "targets": [{"name": "Test Account", "username": trusted_username, "command_enabled": True}],
+        "targets": [{"name": "测试账号", "username": trusted_username, "command_enabled": True}],
     }
-    app.bridge = SimpleNamespace(targets={"Test Account": trusted_username})
+    app.bridge = SimpleNamespace(targets={"测试账号": trusted_username})
     app._send_command_reply = lambda *_args: None
     started = []
 
@@ -348,10 +348,10 @@ def test_trusted_command_starts_codex_without_waiting_for_wechat_ack(monkeypatch
             started.append((self.target, self.args, self.daemon))
 
     monkeypatch.setattr(app_module.threading, "Thread", FakeThread)
-    app._handle_command("Test Account", "检查工作区状态")
+    app._handle_command("测试账号", "检查工作区状态")
 
     assert len(started) == 2
     assert started[0][0] == app._send_command_reply
     assert started[1][0] == app._run_codex_instruction
-    assert started[1][1] == ("Test Account", "检查工作区状态")
+    assert started[1][1] == ("测试账号", "检查工作区状态")
     assert all(item[2] for item in started)

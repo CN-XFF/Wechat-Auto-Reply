@@ -6,13 +6,13 @@
     # 不带参数则默认监听「文件传输助手」
 
 例：
-    python demo_listen.py wxid_xxx 123456@chatroom
+    python demo_listen.py wxid_example_102 123456@chatroom
     python demo_listen.py 兔仔仔 我的群    # 昵称/备注会自动映射到会话 username
     python demo_listen.py --all             # 监听全部会话（运行中自动发现新会话）
 
 ⚠️ 注意：
     names 里最终匹配的是「会话 username」——即 get_sessions() 返回的
-    wxid_xxx（个聊）或 xxx@chatroom（群聊），不是微信昵称、也不是
+    wxid_example_102（个聊）或 xxx@chatroom（群聊），不是微信昵称、也不是
     你设置的微信号(alias)。传入昵称/备注时本脚本会自动帮你转换；
     若转换失败会给出提示，此时请先运行一次本脚本查看列出的会话清单。
 """

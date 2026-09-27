@@ -26,7 +26,11 @@ dist/
 /distribution/output/
 /distribution/release/
 /distribution/release-work/
-/vendor/
+/vendor/**/.git/
+/vendor/**/__pycache__/
+/vendor/**/build/
+/vendor/**/*.egg-info/
+/vendor/**/*.pyc
 config.json
 config.local.json
 config.*.local.json

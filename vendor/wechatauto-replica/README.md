@@ -63,7 +63,7 @@ for s in db.get_sessions(limit=10):          # session list
     print(db.get_nickname(s["username"]), s["unread"])
 
 hits = db.search_contact("Ayi")              # search contacts
-for m in db.get_messages("wxid_example_012", limit=10):   # recent messages
+for m in db.get_messages("filehelper", limit=10):   # recent messages
     print(m["create_time"], m["sender_id"], m["type"], m["content"])
 ```
 
@@ -72,8 +72,8 @@ for m in db.get_messages("wxid_example_012", limit=10):   # recent messages
 ```python
 from wechatauto.guia import quick_send, quick_send_file
 
-quick_send("Hello", "wxid_example_012", verify=True)   # verify=True reads back from DB
-quick_send_file(r"D:\report.pdf", "wxid_example_012")
+quick_send("Hello", "filehelper", verify=True)   # verify=True reads back from DB
+quick_send_file(r"D:\report.pdf", "filehelper")
 ```
 
 ### Real-time listening
@@ -84,7 +84,7 @@ from wechatauto.db import Listener
 
 db = WeChatDB()
 lst = Listener(db, interval=1.0)
-lst.add_listener("wxid_example_012", lambda msg, lst: print("new:", msg["content"]))
+lst.add_listener("filehelper", lambda msg, lst: print("new:", msg["content"]))
 lst.start()
 # ... your code ...
 lst.stop()
@@ -100,8 +100,8 @@ from wechatauto import WeChatDB, MediaDownloader, MomentDB
 db = WeChatDB()
 md = MediaDownloader(db)
 md.detect_image_key()          # scan process memory for the image AES key (persisted after first hit)
-for m in db.get_messages("wxid_example_012", limit=50):
-    out = md.download_media("wxid_example_012", m["local_id"])
+for m in db.get_messages("filehelper", limit=50):
+    out = md.download_media("filehelper", m["local_id"])
     if out:
         print("downloaded:", out)
 

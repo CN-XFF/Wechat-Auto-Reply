@@ -143,7 +143,7 @@ class _AllMessageChat:
 
 
 def _extract_group_sender(content) -> str:
-    """群消息内容形如 ``wxid_xxx:\\n正文``，提取发送者 wxid。"""
+    """群消息内容形如 ``wxid_example_102:\\n正文``，提取发送者 wxid。"""
     if isinstance(content, bytes):
         content = content.decode('utf-8', errors='ignore')
     m = re.match(r'^(wxid_[0-9a-zA-Z_]+):\s*\n', content or '')
@@ -241,8 +241,8 @@ class SessionItem:
 
 def _resolve_wxid(db, name: str) -> str:
     """把会话显示名解析为数据库 wxid；文件传输助手/未知则原样返回。"""
-    if name in ('wxid_example_012', '文件传输助手'):
-        return 'wxid_example_012'
+    if name in ('filehelper', '文件传输助手'):
+        return 'filehelper'
     try:
         for hit in db.search_contact(name):
             if name in (hit.get('nick_name'), hit.get('remark')):
@@ -980,7 +980,7 @@ class WeChat(Chat, Listener):
             hits = self._db.search_contact(nickname)
         except Exception:
             hits = []
-        if hits or nickname in ('wxid_example_012', '文件传输助手'):
+        if hits or nickname in ('filehelper', '文件传输助手'):
             return chat
         return None
 
