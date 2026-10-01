@@ -7,7 +7,6 @@ import msvcrt
 import os
 import queue
 import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -15,14 +14,17 @@ import time
 import tkinter as tk
 import uuid
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
+from first_run import ensure_configuration, save_configuration
 from reply_core.engine import CodexReplyEngine, ReplyDecision
+from reply_core.codex_cli import run_codex
+from reply_core.codex_catalog import refresh_cli_catalog
 from reply_core.wechat_bridge import SendCancelled, WeChatBridge
 
 
 ROOT = Path(__file__).resolve().parent
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.9"
 RUNTIME = ROOT / "runtime"
 LOGS = ROOT / "logs"
 RUNTIME.mkdir(exist_ok=True)
@@ -33,13 +35,6 @@ logging.basicConfig(
     force=True,
 )
 LIVE_LOG_QUEUE: queue.Queue[str] = queue.Queue(maxsize=3000)
-MODEL_OPTIONS = {
-    "GPT-5.5": "gpt-5.5",
-    "GPT-6 Luna": "gpt-6-luna",
-    "GPT-6 Sol": "gpt-6-sol",
-    "GPT-6 Astra": "gpt-6-astra",
-}
-MODEL_LABEL_BY_ID = {model_id: label for label, model_id in MODEL_OPTIONS.items()}
 REASONING_EFFORT_OPTIONS = {
     "低（low）": "low",
     "中（medium）": "medium",
@@ -119,7 +114,7 @@ class Application:
     def __init__(self):
         startup_started = time.perf_counter()
         logging.info("启动阶段：读取配置")
-        self.config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+        self.config = json.loads((ROOT / "config.json").read_text(encoding="utf-8-sig"))
         self.config_path = ROOT / "config.json"
         normalized_targets = self._normalize_auto_reply_listen_settings(self.config)
         if normalized_targets:
@@ -165,6 +160,13 @@ class Application:
         self.global_auto_reply_var: tk.BooleanVar | None = None
         self.model_choice_var: tk.StringVar | None = None
         self.reasoning_choice_var: tk.StringVar | None = None
+        self.model_options: dict[str, str] = {}
+        self.model_catalog: dict[str, dict] = {}
+        self.model_verified = False
+        self.reasoning_options = dict(REASONING_EFFORT_OPTIONS)
+        self._catalog_busy = False
+        self._catalog_generation = 0
+        self._catalog_cancel = threading.Event()
         self.cancel_keyboard_var: tk.BooleanVar | None = None
         self.cancel_mouse_var: tk.BooleanVar | None = None
         self.confirm_timeout_notify_var: tk.BooleanVar | None = None
@@ -236,6 +238,7 @@ class Application:
 
     def _merge_recent_self_contacts(self) -> None:
         if not self.config.get("show_recent_self_contacts", True):
+            logging.info("近期联系人读取未开启，可关闭程序后从开始菜单重新配置微信与联系人")
             return
         existing_usernames = {target.get("username") for target in self.config.get("targets", [])}
         added = False
@@ -243,6 +246,7 @@ class Application:
             session_limit=int(self.config.get("recent_contact_scan_sessions", 80)),
             max_contacts=int(self.config.get("recent_contact_max_contacts", 30)),
         )
+        logging.info("近期联系人读取完成：找到 %d 个可用个人会话", len(contacts))
         for contact in contacts:
             username = contact["username"]
             if username in existing_usernames:
@@ -432,24 +436,26 @@ class Application:
             text="回复模型：",
             font=("Microsoft YaHei UI", 10),
         ).pack(side="left")
-        current_model_label = MODEL_LABEL_BY_ID.get(self.engine.model_name, self.engine.model_name)
-        model_labels = list(MODEL_OPTIONS)
-        if current_model_label not in model_labels:
-            model_labels.append(current_model_label)
+        current_model_label = f"{self.engine.model_name}（当前设置，未核实）"
+        model_labels = [current_model_label]
         self.model_choice_var = tk.StringVar(value=current_model_label)
-        ttk.Combobox(
+        self.model_combo = ttk.Combobox(
             model_row,
             textvariable=self.model_choice_var,
             values=model_labels,
             state="readonly",
-            width=16,
-        ).pack(side="left")
-        tk.Button(
+            width=24,
+        )
+        self.model_combo.pack(side="left")
+        self.model_combo.bind("<<ComboboxSelected>>", lambda _event: self._sync_reasoning_choices())
+        self.model_apply_button = tk.Button(
             model_row,
             text="应用模型",
             command=self._apply_model_selection,
             width=10,
-        ).pack(side="left", padx=(8, 0))
+            state="disabled",
+        )
+        self.model_apply_button.pack(side="left", padx=(8, 0))
 
         reasoning_row = tk.Frame(model_frame)
         reasoning_row.pack(anchor="w", pady=(4, 0))
@@ -460,22 +466,25 @@ class Application:
         ).pack(side="left")
         current_effort_label = REASONING_EFFORT_LABEL_BY_ID.get(
             self.engine.reasoning_effort,
-            REASONING_EFFORT_LABEL_BY_ID["medium"],
+            self.engine.reasoning_effort,
         )
         self.reasoning_choice_var = tk.StringVar(value=current_effort_label)
-        ttk.Combobox(
+        self.reasoning_combo = ttk.Combobox(
             reasoning_row,
             textvariable=self.reasoning_choice_var,
             values=list(REASONING_EFFORT_OPTIONS),
             state="readonly",
             width=13,
-        ).pack(side="left")
-        tk.Button(
+        )
+        self.reasoning_combo.pack(side="left")
+        self.reasoning_apply_button = tk.Button(
             reasoning_row,
             text="应用强度",
             command=self._apply_reasoning_effort_selection,
             width=10,
-        ).pack(side="left", padx=(8, 10))
+            state="disabled",
+        )
+        self.reasoning_apply_button.pack(side="left", padx=(8, 10))
         tk.Label(
             reasoning_row,
             text="低档更快，高档思考更多；仅影响之后新回复。",
@@ -488,6 +497,29 @@ class Application:
             font=("Microsoft YaHei UI", 9),
             fg="#555555",
         ).pack(side="left", padx=(10, 0))
+
+        codex_row = tk.Frame(model_frame)
+        codex_row.pack(anchor="w", pady=(5, 0))
+        tk.Button(
+            codex_row, text="选择 Codex 程序…",
+            command=self._select_codex_executable,
+        ).pack(side="left")
+        tk.Button(
+            codex_row, text="恢复自动查找",
+            command=lambda: self._save_codex_executable(""),
+        ).pack(side="left", padx=(8, 0))
+        self.codex_path_status_var = tk.StringVar(
+            value="已指定本机程序位置" if self.config.get("codex_executable") else "自动查找本机 Codex CLI"
+        )
+        tk.Label(codex_row, textvariable=self.codex_path_status_var, fg="#555555").pack(side="left", padx=(10, 0))
+        catalog_row = tk.Frame(model_frame)
+        catalog_row.pack(anchor="w", pady=(5, 0))
+        self.catalog_refresh_button = tk.Button(
+            catalog_row, text="刷新模型列表", command=self._refresh_codex_catalog,
+        )
+        self.catalog_refresh_button.pack(side="left", padx=(8, 0))
+        self.cli_catalog_status_var = tk.StringVar(value="CLI 版本与模型列表尚未查询；原模型设置暂时保留。")
+        tk.Label(model_frame, textvariable=self.cli_catalog_status_var, justify="left", wraplength=540, fg="#555555").pack(anchor="w", pady=(4, 0))
 
         cancel_row = tk.Frame(model_frame)
         cancel_row.pack(anchor="w", pady=(5, 0))
@@ -854,6 +886,13 @@ class Application:
             canvas.itemconfigure(canvas_window, width=event.width)
 
         canvas.bind("<Configure>", _resize_canvas_window)
+        if not self.config["targets"]:
+            tk.Label(
+                contacts_frame,
+                text="尚无联系人。关闭程序后，从开始菜单选择“重新配置微信与联系人”，\n"
+                     "再选择“保存并读取近期联系人”。只显示本机近期个人会话，群聊和公众号不列入。",
+                justify="left", wraplength=480, padx=12, pady=14,
+            ).pack(anchor="w", fill="x")
         for target in self.config["targets"]:
             name = target["name"]
             row = tk.Frame(contacts_frame, borderwidth=1, relief="groove", padx=6, pady=4)
@@ -1173,31 +1212,164 @@ class Application:
     def _start_search_contact_test(self) -> None:
         self._start_fixed_reply_test(contact_search_only=True)
 
+    def _select_codex_executable(self) -> None:
+        selected = filedialog.askopenfilename(
+            parent=self.root, title="选择本机 Codex 命令行程序 codex.exe",
+            filetypes=[("Codex 程序", "codex.exe")],
+        )
+        if not selected:
+            return
+        try:
+            candidate = Path(selected)
+            if candidate.name.lower() != "codex.exe" or not candidate.is_file():
+                raise ValueError("请选择可访问的 codex.exe 文件。")
+        except (OSError, ValueError):
+            messagebox.showerror("程序路径不可用", "Windows 无法访问所选文件，请选择 Codex CLI 的实际 codex.exe 文件。", parent=self.root)
+            return
+        self._save_codex_executable(str(candidate))
+
+    def _save_codex_executable(self, selected: str) -> None:
+        previous = self.config.get("codex_executable")
+        self.config["codex_executable"] = selected
+        try:
+            save_configuration(self.config_path, self.config)
+        except OSError:
+            if previous is None:
+                self.config.pop("codex_executable", None)
+            else:
+                self.config["codex_executable"] = previous
+            self._set_status("Codex 程序位置保存失败，仍使用原设置")
+            return
+        self.engine.codex = selected or "codex"
+        self.engine.settings["codex_executable"] = selected
+        self.codex_path_status_var.set("已指定本机程序位置" if selected else "自动查找本机 Codex CLI")
+        self._set_status("Codex 程序位置已保存，之后的 AI 任务使用新设置；原配置已备份")
+        self._refresh_codex_catalog(reset=True)
+
+    def _refresh_codex_catalog(self, reset: bool = False) -> None:
+        if self.shutting_down:
+            return
+        if self._catalog_busy and not reset:
+            return
+        self._catalog_cancel.set()
+        self._catalog_cancel = threading.Event()
+        cancelled = self._catalog_cancel
+        self._catalog_generation += 1
+        generation = self._catalog_generation
+        self._catalog_busy = True
+        self.model_verified = False
+        self.model_apply_button.configure(state="disabled")
+        self.reasoning_apply_button.configure(state="disabled")
+        self.catalog_refresh_button.configure(state="disabled")
+        self.cli_catalog_status_var.set("正在查询 CLI 版本、功能与模型目录，界面可以继续操作…")
+        executable = str(self.engine.codex)
+        workdir = self.engine.sandbox
+
+        def query() -> None:
+            try:
+                result = refresh_cli_catalog(executable, workdir, cancelled)
+            except Exception:
+                result = {"version": "未获取", "models": [], "missing_flags": [], "login_state": "未知",
+                          "catalog_error": "无法查询 CLI，请选择实际 codex.exe，确认登录和版本后刷新。"}
+            self.events.put(("codex_catalog", generation, result, None, ""))
+
+        threading.Thread(target=query, daemon=True).start()
+
+    def _finish_codex_catalog(self, generation: int, result: dict) -> None:
+        if generation != self._catalog_generation or self.shutting_down:
+            return
+        self._catalog_busy = False
+        self.catalog_refresh_button.configure(state="normal")
+        models = result.get("models") or []
+        self.model_catalog = {row["id"]: row for row in models}
+        self.model_options = {f"{row['name']} [{row['id']}]": row["id"] for row in models}
+        missing = result.get("missing_flags") or []
+        self.model_verified = bool(models) and not missing and result.get("login_state") != "未登录"
+        notes = [f"CLI：{result.get('version', '未知')}；登录状态：{result.get('login_state', '未知')}。"]
+        if missing:
+            notes.append("CLI 版本不兼容，请升级后刷新；缺少：" + ", ".join(missing))
+        if result.get("login_state") == "未登录":
+            notes.append("请先在 Codex CLI 登录，再刷新。")
+        if result.get("catalog_error"):
+            notes.append(result["catalog_error"])
+        if models:
+            labels = list(self.model_options)
+            current = next((label for label, slug in self.model_options.items() if slug == self.engine.model_name), None)
+            if current is None:
+                default = next((row["id"] for row in models if row.get("is_default")), models[0]["id"])
+                current = next(label for label, slug in self.model_options.items() if slug == default)
+                notes.append("原模型不在此目录，请选择并点击“应用模型”；原设置尚未改动。")
+            self.model_combo.configure(values=labels)
+            self.model_choice_var.set(current)
+            notes.append(f"CLI 返回 {len(models)} 个文字模型；目录可能来自缓存，调用权限以实际结果为准。")
+        else:
+            current = f"{self.engine.model_name}（当前设置，未核实）"
+            self.model_combo.configure(values=[current])
+            self.model_choice_var.set(current)
+            self.model_options = {}
+            notes.append("保留原模型设置，不把预设模型当作可用列表。")
+        self.model_apply_button.configure(state="normal" if self.model_verified else "disabled")
+        self.cli_catalog_status_var.set("\n".join(notes))
+        self._sync_reasoning_choices()
+
+    def _sync_reasoning_choices(self) -> None:
+        slug = self.model_options.get(self.model_choice_var.get())
+        row = self.model_catalog.get(slug, {})
+        efforts = row.get("efforts") or []
+        self.reasoning_options = {REASONING_EFFORT_LABEL_BY_ID.get(value, value): value for value in efforts}
+        if not efforts:
+            label = f"{self.engine.reasoning_effort}（未核实）"
+            self.reasoning_combo.configure(values=[label])
+            self.reasoning_choice_var.set(label)
+            self.reasoning_apply_button.configure(state="disabled")
+            return
+        preferred = self.engine.reasoning_effort
+        if preferred not in efforts:
+            preferred = row.get("default_effort")
+        if preferred not in efforts:
+            preferred = efforts[0]
+        self.reasoning_combo.configure(values=list(self.reasoning_options))
+        self.reasoning_choice_var.set(next(label for label, value in self.reasoning_options.items() if value == preferred))
+        self.reasoning_apply_button.configure(state="normal" if self.model_verified else "disabled")
+
     def _apply_model_selection(self) -> None:
         if self.model_choice_var is None:
             return
         label = self.model_choice_var.get()
-        model = MODEL_OPTIONS.get(label)
-        if model is None:
-            self._set_status("模型选择无效，未更改当前设置")
+        model = self.model_options.get(label)
+        if not self.model_verified or model is None:
+            self._set_status("请先成功刷新 CLI 模型列表，再选择模型")
             return
-        if model == self.engine.model_name:
+        effort = self.reasoning_options.get(self.reasoning_choice_var.get())
+        if model != self.engine.model_name and effort is None:
+            self._set_status("CLI 未提供此模型的推理档位，请升级后刷新；模型设置未修改")
+            return
+        if model == self.engine.model_name and (effort is None or effort == self.engine.reasoning_effort):
             self._set_status(f"处理完成：当前模型仍为 {label}")
             return
 
         previous_model = self.config.get("codex_model")
+        previous_effort = self.config.get("codex_reasoning_effort")
         self.config["codex_model"] = model
+        if effort is not None:
+            self.config["codex_reasoning_effort"] = effort
         try:
-            self._persist_config()
+            save_configuration(self.config_path, self.config)
         except OSError:
             self.config["codex_model"] = previous_model
-            self.model_choice_var.set(MODEL_LABEL_BY_ID.get(self.engine.model_name, self.engine.model_name))
+            if previous_effort is None:
+                self.config.pop("codex_reasoning_effort", None)
+            else:
+                self.config["codex_reasoning_effort"] = previous_effort
             logging.exception("保存回复模型设置失败")
             self._set_status("模型设置保存失败，仍使用原模型")
             return
 
         self.engine.model_name = model
         self.engine.settings["codex_model"] = model
+        if effort is not None:
+            self.engine.reasoning_effort = effort
+            self.engine.settings["codex_reasoning_effort"] = effort
         if self.header_status_var is not None:
             state = "开启" if self.config.get("enabled", True) else "暂停"
             self.header_status_var.set(
@@ -1210,9 +1382,12 @@ class Application:
         if self.reasoning_choice_var is None:
             return
         label = self.reasoning_choice_var.get()
-        effort = REASONING_EFFORT_OPTIONS.get(label)
-        if effort is None:
+        effort = self.reasoning_options.get(label)
+        if not self.model_verified or effort is None:
             self._set_status("模型强度选择无效，未更改当前设置")
+            return
+        if self.model_options.get(self.model_choice_var.get()) != self.engine.model_name:
+            self._set_status("请先点击“应用模型”，模型与推理档位会一起保存")
             return
         if effort == self.engine.reasoning_effort:
             self._set_status(f"处理完成：当前模型强度仍为 {label}")
@@ -1221,7 +1396,7 @@ class Application:
         previous_effort = self.config.get("codex_reasoning_effort")
         self.config["codex_reasoning_effort"] = effort
         try:
-            self._persist_config()
+            save_configuration(self.config_path, self.config)
         except OSError:
             if previous_effort is None:
                 self.config.pop("codex_reasoning_effort", None)
@@ -1230,7 +1405,7 @@ class Application:
             self.reasoning_choice_var.set(
                 REASONING_EFFORT_LABEL_BY_ID.get(
                     self.engine.reasoning_effort,
-                    REASONING_EFFORT_LABEL_BY_ID["medium"],
+                    self.engine.reasoning_effort,
                 )
             )
             logging.exception("保存模型强度设置失败")
@@ -2506,9 +2681,7 @@ class Application:
                     "请执行用户指令并给出简短结果。除非指令明确要求，不要发送微信消息，也不要改动无关文件。\n\n"
                     f"用户指令：{instruction}"
                 )
-                codex_executable = shutil.which("codex")
-                if not codex_executable:
-                    raise FileNotFoundError("自动回复进程的 PATH 中找不到 codex.exe")
+                codex_executable = str(self.config.get("codex_executable") or "codex")
                 cmd = [
                     codex_executable, "exec",
                     "--cd", str(workdir),
@@ -2520,8 +2693,8 @@ class Application:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = subprocess.SW_HIDE
-                result = subprocess.run(
-                    cmd,
+                result = run_codex(
+                    cmd[1:], executable=codex_executable,
                     cwd=str(workdir),
                     text=True,
                     capture_output=True,
@@ -2732,7 +2905,9 @@ class Application:
         try:
             while True:
                 kind, target_name, msg, decision, reason = self.events.get_nowait()
-                if kind == "decision":
+                if kind == "codex_catalog":
+                    self._finish_codex_catalog(target_name, msg)
+                elif kind == "decision":
                     self._handle_decision(target_name, msg, decision)
                 elif kind == "command":
                     logging.info("授权联系人指令事件已由主线程接收：target=%s", target_name)
@@ -3148,11 +3323,13 @@ class Application:
         self.worker.start()
         self.root.after(250, self._poll)
         self.root.after(100, self._poll_live_log)
+        self.root.after(600, self._refresh_codex_catalog)
         self._set_status(f"处理完成：正在监听 {len(active_targets)} 个联系人")
         logging.info("开始监听：%s", "、".join(active_targets) if active_targets else "无")
         self.root.mainloop()
 
     def stop(self) -> None:
+        self._catalog_cancel.set()
         self.config["enabled"] = False
         self._persist_config()
         self._clear_pending_work()
@@ -3163,9 +3340,13 @@ class Application:
 if __name__ == "__main__":
     try:
         if not ensure_single_instance():
+            if "--configure" in sys.argv:
+                messagebox.showinfo("重新配置微信与联系人", "请先关闭已运行的自动回复程序，再打开配置向导。")
+            sys.exit(0)
+        if not ensure_configuration(ROOT, force="--configure" in sys.argv):
             sys.exit(0)
         Application().run()
     except Exception as exc:
         logging.exception("启动失败")
-        messagebox.showerror("联系人示例 自动回复启动失败", str(exc))
+        messagebox.showerror("微信自动回复启动失败", str(exc))
         sys.exit(1)

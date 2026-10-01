@@ -20,7 +20,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#AppName}
-VersionInfoVersion=1.0.6.0
+VersionInfoVersion=1.0.9.0
 VersionInfoProductName={#AppName}
 VersionInfoDescription=Windows WeChat text auto-reply assistant
 
@@ -40,6 +40,7 @@ Source: "README.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 [Icons]
 Name: "{group}\启动 {#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 Name: "{group}\编辑本机配置"; Filename: "{sys}\notepad.exe"; Parameters: """{app}\_internal\config.json"""
+Name: "{group}\重新配置微信与联系人"; Filename: "{app}\{#AppExeName}"; Parameters: "--configure"; WorkingDir: "{app}"
 Name: "{group}\安装与配置说明"; Filename: "{app}\docs\INSTALLATION_GUIDE.md"
 Name: "{group}\交给 Codex 的配置说明"; Filename: "{app}\docs\CODEX_AFTER_INSTALL_HANDOFF.md"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon

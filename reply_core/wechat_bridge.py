@@ -111,7 +111,7 @@ class WeChatBridge:
                 messages = self.db.get_messages(username, limit=20)
             except Exception:
                 continue
-            if not any(row.get("sender_id") in {1, 2} and row.get("type") != "系统" for row in messages):
+            if not any(row.get("type") != "系统" for row in messages):
                 continue
             seen.add(username)
             contacts.append({
